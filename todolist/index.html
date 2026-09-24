@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TaskFlow Pro - Modern To-Do List</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-background">
+        <div class="glow-orb orb-1"></div>
+        <div class="glow-orb orb-2"></div>
+        <div class="glow-orb orb-3"></div>
+    </div>
+
+    <div class="container">
+        <!-- Sidebar / Stats & Categories -->
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-icon">
+                    <i class="fa-solid fa-check-double"></i>
+                </div>
+                <h1>TaskFlow</h1>
+            </div>
+
+            <div class="user-profile">
+                <div class="avatar">
+                    <i class="fa-solid fa-user"></i>
+                </div>
+                <div class="user-info">
+                    <span class="greeting">Welcome back,</span>
+                    <h3 id="usernameDisplay">Productive User</h3>
+                </div>
+                <button id="editNameBtn" title="Edit Name"><i class="fa-solid fa-pen"></i></button>
+            </div>
+
+            <!-- Productivity Stats Widget -->
+            <div class="stats-card">
+                <h4>Today's Progress</h4>
+                <div class="progress-bar-container">
+                    <div id="progressBar" class="progress-bar"></div>
+                </div>
+                <div class="stats-details">
+                    <span id="taskStatsText">0 of 0 completed</span>
+                    <span id="taskPercentage">0%</span>
+                </div>
+            </div>
+
+            <!-- Filter by Category -->
+            <div class="nav-section">
+                <h3>Categories</h3>
+                <ul class="category-list">
+                    <li class="cat-item active" data-category="all">
+                        <i class="fa-solid fa-layer-group"></i> All Tasks
+                        <span class="badge" id="badgeAll">0</span>
+                    </li>
+                    <li class="cat-item" data-category="Work">
+                        <i class="fa-solid fa-briefcase" style="color: #6366f1;"></i> Work
+                        <span class="badge" id="badgeWork">0</span>
+                    </li>
+                    <li class="cat-item" data-category="Personal">
+                        <i class="fa-solid fa-user-check" style="color: #ec4899;"></i> Personal
+                        <span class="badge" id="badgePersonal">0</span>
+                    </li>
+                    <li class="cat-item" data-category="Shopping">
+                        <i class="fa-solid fa-cart-shopping" style="color: #f59e0b;"></i> Shopping
+                        <span class="badge" id="badgeShopping">0</span>
+                    </li>
+                    <li class="cat-item" data-category="Health">
+                        <i class="fa-solid fa-heart-pulse" style="color: #10b981;"></i> Health
+                        <span class="badge" id="badgeHealth">0</span>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="sidebar-footer">
+                <button id="themeToggleBtn" class="theme-toggle">
+                    <i class="fa-solid fa-moon"></i> <span>Dark Mode</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Top Header Bar -->
+            <header class="main-header">
+                <div class="date-display">
+                    <h2 id="currentDay">Monday</h2>
+                    <p id="currentDate">October 24, 2023</p>
+                </div>
+                <div class="header-actions">
+                    <div class="search-box">
+                        <i class="fa-solid fa-search"></i>
+                        <input type="text" id="searchInput" placeholder="Search tasks...">
+                    </div>
+                    <button class="btn-primary" id="openModalBtn">
+                        <i class="fa-solid fa-plus"></i> New Task
+                    </button>
+                </div>
+            </header>
+
+            <!-- Filter Tabs & Sort Controls -->
+            <div class="controls-bar">
+                <div class="status-tabs">
+                    <button class="tab-btn active" data-status="all">All</button>
+                    <button class="tab-btn" data-status="active">Active</button>
+                    <button class="tab-btn" data-status="completed">Completed</button>
+                </div>
+
+                <div class="sort-dropdown-wrapper">
+                    <label for="sortSelect"><i class="fa-solid fa-arrow-down-wide-short"></i> Sort by:</label>
+                    <select id="sortSelect">
+                        <option value="dueDate">Due Date</option>
+                        <option value="priority">Priority</option>
+                        <option value="alphabetical">Alphabetical</option>
+                        <option value="created">Date Created</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Task List Container -->
+            <div class="task-container">
+                <div id="taskList" class="task-list">
+                    <!-- Tasks will be dynamically injected here -->
+                </div>
+
+                <!-- Empty State -->
+                <div id="emptyState" class="empty-state hidden">
+                    <div class="empty-illustration">
+                        <i class="fa-solid fa-clipboard-list"></i>
+                    </div>
+                    <h3>No tasks found</h3>
+                    <p>You're all caught up! Create a new task to boost your productivity.</p>
+                    <button class="btn-primary" id="emptyAddBtn">
+                        <i class="fa-solid fa-plus"></i> Add a Task
+                    </button>
+                </div>
+            </div>
+
+            <!-- Bottom Bulk Actions -->
+            <div class="bulk-actions" id="bulkActionsBar">
+                <span id="selectedCount">0 tasks selected</span>
+                <div class="bulk-buttons">
+                    <button id="completeSelectedBtn" class="btn-sm"><i class="fa-solid fa-check"></i> Mark Completed</button>
+                    <button id="deleteSelectedBtn" class="btn-sm btn-danger"><i class="fa-solid fa-trash"></i> Delete Selected</button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Task Modal (Create / Edit) -->
+    <div class="modal-overlay" id="taskModal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3 id="modalTitle">Create New Task</h3>
+                <button class="close-modal-btn" id="closeModalBtn"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form id="taskForm">
+                <input type="hidden" id="taskId">
+                
+                <div class="form-group">
+                    <label for="taskTitleInput">Task Title <span class="required">*</span></label>
+                    <input type="text" id="taskTitleInput" placeholder="What needs to be done?" required autocomplete="off">
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="taskCategorySelect">Category</label>
+                        <select id="taskCategorySelect">
+                            <option value="Work">Work</option>
+                            <option value="Personal">Personal</option>
+                            <option value="Shopping">Shopping</option>
+                            <option value="Health">Health</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="taskPrioritySelect">Priority</label>
+                        <select id="taskPrioritySelect">
+                            <option value="low">Low</option>
+                            <option value="medium" selected>Medium</option>
+                            <option value="high">High</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="taskDueDateInput">Due Date</label>
+                        <input type="date" id="taskDueDateInput">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="taskDescInput">Description (Optional)</label>
+                    <textarea id="taskDescInput" rows="3" placeholder="Add extra notes, details or subtasks..."></textarea>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn-secondary" id="cancelModalBtn">Cancel</button>
+                    <button type="submit" class="btn-primary" id="saveTaskBtn">Save Task</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast">
+        <i class="fa-solid fa-circle-check" id="toastIcon"></i>
+        <span id="toastMessage">Task added successfully!</span>
+    </div>
+
+    <!-- JavaScript -->
+    <script src="script.js"></script>
+</body>
+</html>

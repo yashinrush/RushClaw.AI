@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { Command } from "commander";
-import { runWakeup } from "./tui/Wakeup";
+import { runWakeup } from "./tui/wakeup";
 
 const program = new Command();
 

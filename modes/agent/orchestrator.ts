@@ -34,19 +34,35 @@ export async function runAgentMode() {
         tools,
     });
 
-    const result = await agent.generate({
-        prompt: goal.trim(),
-        onStepFinish: ({ toolCalls }) => {
-            for (const tc of toolCalls) {
-                const preview = JSON.stringify(tc.input).slice(0, 160);
-                console.log(
-                    chalk.green("  ✓"),
-                    chalk.bold(String(tc.toolName)),
-                    chalk.dim(preview + (preview.length >= 160 ? "..." : "")),
-                );
-            }
-        },
-    });
+    let result;
+    try {
+        result = await agent.generate({
+            prompt: goal.trim(),
+            onStepFinish: ({ toolCalls }) => {
+                for (const tc of toolCalls) {
+                    const preview = JSON.stringify(tc.input).slice(0, 160);
+                    console.log(
+                        chalk.green("  ✓"),
+                        chalk.bold(String(tc.toolName)),
+                        chalk.dim(preview + (preview.length >= 160 ? "..." : "")),
+                    );
+                }
+            },
+        });
+    } catch (err: any) {
+        executor.clearStaging();
+        const msg = err?.message || String(err);
+        if (msg.includes("Rate limit exceeded") || msg.includes("429")) {
+            console.log(chalk.red("\n❌ Rate limit exceeded: OpenRouter free tier daily limit (50 requests/day) reached."));
+            console.log(chalk.yellow("👉 Suggestions:"));
+            console.log(chalk.dim("   1. Switch OPENROUTER_DEFAULT_MODEL in .env (e.g. meta-llama/llama-3.3-70b-instruct:free or google/gemini-2.0-flash-lite-preview:free)"));
+            console.log(chalk.dim("   2. Add credits to OpenRouter to raise the limit to 1000 requests/day"));
+            console.log(chalk.dim("   3. Or wait for the daily quota reset.\n"));
+        } else {
+            console.log(chalk.red(`\n❌ Agent encountered an error: ${msg}\n`));
+        }
+        return;
+    }
 
     if (result.text?.trim()) console.log(renderTerminalMarkdown(result.text));
 
