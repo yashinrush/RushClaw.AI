@@ -1,6 +1,7 @@
 import { select, isCancel } from "@clack/prompts";
 import chalk from "chalk";
 import figlet from "figlet";
+import { runCliMode } from "../modes/cli";
 
 const BANNER_FONT = 'ANSI Shadow';
 const SHADOW = chalk.hex('#5b4d9e');
@@ -22,7 +23,6 @@ function printBannerWithShadow(ascii: string) {
     console.log();
 }
 
-
 export async function runWakeup() {
 
     let ascii: string;
@@ -38,18 +38,19 @@ export async function runWakeup() {
         message: "How you want to use RushClaw?",
         options: [
             { value: 'cli', label: 'CLI' },
-            { value: 'telegram', label: 'Telegram' }
-            // { value: 'bot', label: 'Bot' }
+            { value: 'telegram', label: 'Telegram' },
+            { value: 'exit', label: 'Exit' }
         ]
     });
-    if (isCancel(mode)) {
-        console.log(chalk.red("You cancelled the operation"));
-        process.exit(0);
+    if (isCancel(mode) || mode === 'exit') {
+        console.log(chalk.dim('\n Goodbye!\n'));
+        return;
     }
 
     if (mode === "cli") {
-        console.log(chalk.dim("Starting cli mode..."))
-    } else {
+        // console.log(chalk.dim("Starting cli mode..."))
+        await runCliMode()
+    } else if (mode === "telegram") {
         console.log(chalk.dim("Starting Telegram mode..."))
     }
 }
