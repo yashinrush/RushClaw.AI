@@ -35,22 +35,24 @@ export async function runWakeup() {
 
     printBannerWithShadow(ascii);
 
-    const mode = await select({
-        message: "How you want to use RushClaw?",
-        options: [
-            { value: 'cli', label: 'CLI' },
-            { value: 'telegram', label: 'Telegram' },
-            { value: 'exit', label: 'Exit' }
-        ]
-    });
-    if (isCancel(mode) || mode === 'exit') {
-        console.log(chalk.dim('\n Goodbye!\n'));
-        return;
-    }
+    while (true) {
+        const mode = await select({
+            message: "How you want to use RushClaw?",
+            options: [
+                { value: 'cli', label: 'CLI' },
+                { value: 'telegram', label: 'Telegram' },
+                { value: 'exit', label: 'Exit' }
+            ]
+        });
+        if (isCancel(mode) || mode === 'exit') {
+            console.log(chalk.dim('\n Goodbye!\n'));
+            return;
+        }
 
-    if (mode === "cli") {
-        await runCliMode();
-    } else if (mode === "telegram") {
-        await runTelegramMode();
+        if (mode === "cli") {
+            await runCliMode();
+        } else if (mode === "telegram") {
+            await runTelegramMode();
+        }
     }
 }
