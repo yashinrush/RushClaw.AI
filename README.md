@@ -17,7 +17,7 @@
 <br/>
 
 <p align="center">
-  <img src="assets/rushclaw-banner.png" alt="RushClaw.AI CLI Banner" width="740" />
+  <img src="./assets/rushclaw-banner.png" alt="RushClaw.AI CLI Banner" width="740" />
 </p>
 
 </div>
@@ -50,7 +50,7 @@ Every single codebase mutation (file creation, modification, or directory additi
 RushClaw features an interactive, shadow-typography terminal user interface (TUI) with smooth sub-mode navigation, real-time loading spinners, and graceful loopbacks:
 
 <p align="center">
-  <img src="assets/rushclaw-menu-flow.png" alt="RushClaw CLI Navigation and Loopback Flow" width="740" />
+  <img src="./assets/rushclaw-menu-flow.png" alt="RushClaw CLI Navigation and Loopback Flow" width="740" />
 </p>
 
 | UI Element | Description |
