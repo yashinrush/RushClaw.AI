@@ -50,7 +50,9 @@ Every single codebase mutation (file creation, modification, or directory additi
 RushClaw features an interactive, shadow-typography terminal user interface (TUI) with smooth sub-mode navigation, real-time loading spinners, and graceful loopbacks:
 
 <p align="center">
-  <img src="./assets/rushclaw-menu-flow.png" alt="RushClaw CLI Navigation and Loopback Flow" width="740" />
+  <img src="./assets/rushclaw-banner.png" alt="RushClaw Startup Launcher" width="720" />
+  <br/><br/>
+  <img src="./assets/rushclaw-menu-flow.png" alt="RushClaw CLI Sub-Mode Selection" width="720" />
 </p>
 
 | UI Element | Description |
@@ -122,6 +124,10 @@ rushclaw-build wakeup
 ---
 
 ## 🕹️ Operating Modes
+
+<p align="center">
+  <img src="./assets/rushclaw-menu-flow.png" alt="RushClaw CLI Sub-Mode Selector" width="720" />
+</p>
 
 ### 1. 🤖 Agent Mode (`runAgentMode`)
 Designed for autonomous execution of complex features and fixes:
