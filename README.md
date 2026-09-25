@@ -12,7 +12,13 @@
 **Autonomous Agentic Coding Assistant & Multi-Mode CLI built with Bun & TypeScript.**  
 *Transform natural language prompts into safely staged, approval-gated codebase changes with CLI and Telegram Bot control.*
 
-[Key Features](#-key-features) • [Quickstart](#-quickstart) • [Configuration](#-configuration) • [Operating Modes](#-operating-modes) • [Architecture](#-project-architecture) • [Safety System](#-safety--approval-engine)
+[Key Features](#-key-features) • [Terminal Output](#-terminal-output--interactive-flow) • [Quickstart](#-quickstart) • [Operating Modes](#-operating-modes) • [Architecture](#-project-architecture)
+
+<br/>
+
+<p align="center">
+  <img src="assets/rushclaw-banner.png" alt="RushClaw.AI CLI Banner" width="740" />
+</p>
 
 </div>
 
@@ -36,6 +42,23 @@ Every single codebase mutation (file creation, modification, or directory additi
 - 🌐 **Web Research & Scraping** — Native web search, URL fetching, and markdown scraping powered by **Firecrawl**.
 - 🎨 **Modern Terminal UI** — Retro shadow ANSI banners (via `figlet`), clean interactive prompts (`@clack/prompts`), and full terminal markdown rendering (`marked` + `marked-terminal`).
 - ⚡ **Dual AI Engine Support** — Seamlessly runs on **Google Gemini** (1,500 requests/day on Google AI Studio free tier) or **OpenRouter**.
+
+---
+
+## 📸 Terminal Output & Interactive Flow
+
+RushClaw features an interactive, shadow-typography terminal user interface (TUI) with smooth sub-mode navigation, real-time loading spinners, and graceful loopbacks:
+
+<p align="center">
+  <img src="assets/rushclaw-menu-flow.png" alt="RushClaw CLI Navigation and Loopback Flow" width="740" />
+</p>
+
+| UI Element | Description |
+| :--- | :--- |
+| **Dual-Layer ASCII Shadow** | Custom dual-pass banner rendering combining facial foreground and shadow layers. |
+| **Interactive Clack Prompts** | Keyboard navigation (`↑`/`↓` and `Enter`) with zero-flicker selection. |
+| **Seamless Loopback Flow** | Returning from sub-modes (`← Back to main menu`) gracefully loops back to the launcher. |
+| **Real-time Spinners** | Live animated spinners reflecting exact model steps and active tool invocations. |
 
 ---
 
