@@ -8,6 +8,7 @@ import {
 } from "ai";
 import { z } from "zod";
 import chalk from "chalk";
+import { spinner } from "@clack/prompts";
 import { getAgentModel } from "../../ai/ai.config.ts";
 import { ActionTracker } from "../agent/action-tracker.ts";
 import { ToolExecutor } from "../agent/tool-executor.ts";
@@ -119,26 +120,39 @@ export async function generatePlan(goal: string) {
 
     const tools = { ...readOnlyTools(executor), ...(hasWeb ? createWebTools(tracker) : {}) };
 
-    console.log(chalk.cyan("\n🔍 Researching & drafting a plan…\n"));
+    const s = spinner();
+    s.start("Researching codebase and drafting plan...");
 
-    const result = await generateText({
-        model,
-        tools,
-        stopWhen: stepCountIs(20),
-        system: PLAN_INSTRUCTIONS(config.codebasePath, hasWeb),
-        prompt: `User goal: \n${goal}`,
-        output: Output.object({ schema: planSchema })
-    });
+    try {
+        const result = await generateText({
+            model,
+            tools,
+            stopWhen: stepCountIs(20),
+            system: PLAN_INSTRUCTIONS(config.codebasePath, hasWeb),
+            prompt: `User goal: \n${goal}`,
+            output: Output.object({ schema: planSchema }),
+            onStepFinish: ({ toolCalls }) => {
+                if (toolCalls && toolCalls.length > 0) {
+                    const names = toolCalls.map((t) => t?.toolName).filter(Boolean).join(", ");
+                    s.message(`Researching via ${chalk.cyan(names)}...`);
+                }
+            },
+        });
+        s.stop("Plan drafted successfully!");
 
-    const validated = planSchema.parse(result.output);
+        const validated = planSchema.parse(result.output);
 
-    const steps: PlanStep[] = validated.steps.map((s, i) => ({
-        id: `step-${i + 1}`,
-        title: s.title,
-        description: s.description,
-        hints: s.hints,
-        complexity: s.complexity
-    }));
+        const steps: PlanStep[] = validated.steps.map((s, i) => ({
+            id: `step-${i + 1}`,
+            title: s.title,
+            description: s.description,
+            hints: s.hints,
+            complexity: s.complexity
+        }));
 
-    return { goal, researchSummary: validated.researchSummary, steps }
+        return { goal, researchSummary: validated.researchSummary, steps };
+    } catch (err) {
+        s.stop("Failed to draft plan");
+        throw err;
+    }
 }

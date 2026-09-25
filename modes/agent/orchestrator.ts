@@ -1,4 +1,4 @@
-import { isCancel, text } from "@clack/prompts";
+import { isCancel, text, spinner } from "@clack/prompts";
 import chalk from "chalk";
 import { ToolLoopAgent, stepCountIs } from "ai";
 import { defaultAgentConfig } from "./types";
@@ -34,6 +34,9 @@ export async function runAgentMode() {
         tools,
     });
 
+    const s = spinner();
+    s.start("Agent is thinking and analyzing task...");
+
     let result;
     try {
         result = await agent.generate({
@@ -41,6 +44,7 @@ export async function runAgentMode() {
             onStepFinish: ({ toolCalls }) => {
                 for (const tc of toolCalls) {
                     const preview = JSON.stringify(tc.input).slice(0, 160);
+                    s.message(`Running ${chalk.cyan(String(tc.toolName))}...`);
                     console.log(
                         chalk.green("  ✓"),
                         chalk.bold(String(tc.toolName)),
@@ -49,7 +53,9 @@ export async function runAgentMode() {
                 }
             },
         });
+        s.stop("Agent tasks completed!");
     } catch (err: any) {
+        s.stop("Agent execution failed");
         executor.clearStaging();
         const msg = err?.message || String(err);
         if (msg.includes("Rate limit exceeded") || msg.includes("429")) {

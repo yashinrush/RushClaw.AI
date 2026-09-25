@@ -1,5 +1,5 @@
 import chalk from "chalk";
-import { confirm, isCancel, text } from "@clack/prompts";
+import { confirm, isCancel, text, spinner } from "@clack/prompts";
 import { ToolLoopAgent, stepCountIs, tool } from "ai";
 import { z } from "zod";
 import { getAgentModel } from "../../ai/ai.config.ts";
@@ -103,10 +103,23 @@ export async function runAskMode() {
         tools,
     });
 
+    const s = spinner();
+    s.start("Researching and formulating answer...");
+
     let result;
     try {
-        result = await agent.generate({ prompt: question.trim() });
+        result = await agent.generate({
+            prompt: question.trim(),
+            onStepFinish: ({ toolCalls }) => {
+                if (toolCalls && toolCalls.length > 0) {
+                    const names = toolCalls.map((t) => t?.toolName).filter(Boolean).join(", ");
+                    s.message(`Running tools: ${chalk.cyan(names)}...`);
+                }
+            },
+        });
+        s.stop("Answer ready!");
     } catch (err: any) {
+        s.stop("Failed to generate answer");
         const msg = err?.message || String(err);
         if (msg.includes("Rate limit exceeded") || msg.includes("429")) {
             console.log(chalk.red("\n❌ Rate limit exceeded: OpenRouter free tier daily limit (50 requests/day) reached."));

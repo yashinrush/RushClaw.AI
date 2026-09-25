@@ -1,5 +1,5 @@
 import chalk from "chalk";
-import { confirm, isCancel, text } from "@clack/prompts";
+import { confirm, isCancel, text, spinner } from "@clack/prompts";
 import { ToolLoopAgent, stepCountIs } from "ai";
 import { getAgentModel } from "../../ai/ai.config.ts";
 import { ActionTracker } from "../agent/action-tracker.ts";
@@ -71,12 +71,30 @@ export async function runPlanMode(): Promise<void> {
             tools
         });
 
+        const s = spinner();
+        s.start(`Executing: ${step.title}...`);
+
         try {
-            const r = await agent.generate({ prompt: stepPrompt(plan.goal, step) });
+            const r = await agent.generate({
+                prompt: stepPrompt(plan.goal, step),
+                onStepFinish: ({ toolCalls }) => {
+                    for (const tc of toolCalls) {
+                        const preview = JSON.stringify(tc.input).slice(0, 160);
+                        s.message(`Running ${chalk.cyan(String(tc.toolName))}...`);
+                        console.log(
+                            chalk.green("  ✓"),
+                            chalk.bold(String(tc.toolName)),
+                            chalk.dim(preview + (preview.length >= 160 ? "..." : "")),
+                        );
+                    }
+                },
+            });
+            s.stop(`Completed: ${step.title}`);
             if (r.text) {
                 console.log(renderTerminalMarkdown(r.text));
             }
         } catch (err: any) {
+            s.stop(`Failed: ${step.title}`);
             executor.clearStaging();
             const msg = err?.message || String(err);
             if (msg.includes("Rate limit exceeded") || msg.includes("429")) {
