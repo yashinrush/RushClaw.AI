@@ -7,7 +7,7 @@
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Custom CSS -->
@@ -18,12 +18,26 @@
         <div class="glow-orb orb-1"></div>
         <div class="glow-orb orb-2"></div>
         <div class="glow-orb orb-3"></div>
+        <div class="grid-overlay"></div>
+    </div>
+
+    <!-- Mobile Header Bar -->
+    <div class="mobile-header">
+        <div class="brand-mobile">
+            <div class="brand-icon">
+                <i class="fa-solid fa-check-double"></i>
+            </div>
+            <h1>TaskFlow</h1>
+        </div>
+        <button id="mobileMenuBtn" class="mobile-menu-btn" title="Toggle Menu">
+            <i class="fa-solid fa-bars"></i>
+        </button>
     </div>
 
     <div class="container">
         <!-- Sidebar / Stats & Categories -->
-        <aside class="sidebar">
-            <div class="brand">
+        <aside class="sidebar" id="sidebar">
+            <div class="brand desktop-brand">
                 <div class="brand-icon">
                     <i class="fa-solid fa-check-double"></i>
                 </div>
@@ -31,8 +45,10 @@
             </div>
 
             <div class="user-profile">
-                <div class="avatar">
-                    <i class="fa-solid fa-user"></i>
+                <div class="avatar-glow">
+                    <div class="avatar">
+                        <i class="fa-solid fa-user"></i>
+                    </div>
                 </div>
                 <div class="user-info">
                     <span class="greeting">Welcome back,</span>
@@ -43,13 +59,16 @@
 
             <!-- Productivity Stats Widget -->
             <div class="stats-card">
-                <h4>Today's Progress</h4>
+                <div class="stats-header">
+                    <h4>Today's Progress</h4>
+                    <span id="taskPercentage">0%</span>
+                </div>
                 <div class="progress-bar-container">
                     <div id="progressBar" class="progress-bar"></div>
                 </div>
                 <div class="stats-details">
                     <span id="taskStatsText">0 of 0 completed</span>
-                    <span id="taskPercentage">0%</span>
+                    <span class="streak-badge"><i class="fa-solid fa-fire" style="color: #f59e0b;"></i> <span id="streakCount">1</span>d streak</span>
                 </div>
             </div>
 
@@ -98,7 +117,8 @@
                 <div class="header-actions">
                     <div class="search-box">
                         <i class="fa-solid fa-search"></i>
-                        <input type="text" id="searchInput" placeholder="Search tasks...">
+                        <input type="text" id="searchInput" placeholder="Search tasks (Press '/' to focus)..." autocomplete="off">
+                        <span class="keyboard-shortcut">/</span>
                     </div>
                     <button class="btn-primary" id="openModalBtn">
                         <i class="fa-solid fa-plus"></i> New Task
@@ -106,38 +126,54 @@
                 </div>
             </header>
 
+            <!-- Quick Add Bar -->
+            <div class="quick-add-bar">
+                <div class="quick-add-input-wrapper">
+                    <i class="fa-solid fa-bolt quick-add-icon"></i>
+                    <input type="text" id="quickAddInput" placeholder="Quick add task (press Enter)..." autocomplete="off">
+                </div>
+                <button id="quickAddBtn" class="quick-add-submit-btn" title="Add Quick Task"><i class="fa-solid fa-arrow-up"></i></button>
+            </div>
+
             <!-- Filter Tabs & Sort Controls -->
             <div class="controls-bar">
                 <div class="status-tabs">
-                    <button class="tab-btn active" data-status="all">All</button>
-                    <button class="tab-btn" data-status="active">Active</button>
-                    <button class="tab-btn" data-status="completed">Completed</button>
+                    <button class="tab-btn active" data-status="all">All <span class="tab-count" id="tabCountAll">0</span></button>
+                    <button class="tab-btn" data-status="active">Active <span class="tab-count" id="tabCountActive">0</span></button>
+                    <button class="tab-btn" data-status="completed">Completed <span class="tab-count" id="tabCountCompleted">0</span></button>
                 </div>
 
-                <div class="sort-dropdown-wrapper">
-                    <label for="sortSelect"><i class="fa-solid fa-arrow-down-wide-short"></i> Sort by:</label>
-                    <select id="sortSelect">
-                        <option value="dueDate">Due Date</option>
-                        <option value="priority">Priority</option>
-                        <option value="alphabetical">Alphabetical</option>
-                        <option value="created">Date Created</option>
-                    </select>
+                <div class="controls-right">
+                    <div class="view-mode-toggle">
+                        <button class="view-btn active" data-view="list" title="List View"><i class="fa-solid fa-list"></i></button>
+                        <button class="view-btn" data-view="grid" title="Card View"><i class="fa-solid fa-border-all"></i></button>
+                    </div>
+                    <div class="sort-dropdown-wrapper">
+                        <label for="sortSelect"><i class="fa-solid fa-arrow-down-wide-short"></i></label>
+                        <select id="sortSelect">
+                            <option value="dueDate">Sort: Due Date</option>
+                            <option value="priority">Sort: Priority</option>
+                            <option value="alphabetical">Sort: A-Z</option>
+                            <option value="created">Sort: Created</option>
+                        </select>
+                    </div>
                 </div>
             </div>
 
             <!-- Task List Container -->
             <div class="task-container">
-                <div id="taskList" class="task-list">
+                <div id="taskList" class="task-list view-list">
                     <!-- Tasks will be dynamically injected here -->
                 </div>
 
                 <!-- Empty State -->
                 <div id="emptyState" class="empty-state hidden">
                     <div class="empty-illustration">
-                        <i class="fa-solid fa-clipboard-list"></i>
+                        <div class="empty-glow"></div>
+                        <i class="fa-solid fa-clipboard-check"></i>
                     </div>
                     <h3>No tasks found</h3>
-                    <p>You're all caught up! Create a new task to boost your productivity.</p>
+                    <p>You're all caught up! Create a new task or enjoy your free time.</p>
                     <button class="btn-primary" id="emptyAddBtn">
                         <i class="fa-solid fa-plus"></i> Add a Task
                     </button>
@@ -146,7 +182,10 @@
 
             <!-- Bottom Bulk Actions -->
             <div class="bulk-actions" id="bulkActionsBar">
-                <span id="selectedCount">0 tasks selected</span>
+                <div class="bulk-left">
+                    <span class="selected-dot"></span>
+                    <span id="selectedCount">0 tasks selected</span>
+                </div>
                 <div class="bulk-buttons">
                     <button id="completeSelectedBtn" class="btn-sm"><i class="fa-solid fa-check"></i> Mark Completed</button>
                     <button id="deleteSelectedBtn" class="btn-sm btn-danger"><i class="fa-solid fa-trash"></i> Delete Selected</button>
@@ -184,9 +223,9 @@
                     <div class="form-group">
                         <label for="taskPrioritySelect">Priority</label>
                         <select id="taskPrioritySelect">
-                            <option value="low">Low</option>
-                            <option value="medium" selected>Medium</option>
-                            <option value="high">High</option>
+                            <option value="low">Low Priority</option>
+                            <option value="medium" selected>Medium Priority</option>
+                            <option value="high">High Priority</option>
                         </select>
                     </div>
                 </div>
@@ -205,7 +244,7 @@
 
                 <div class="modal-footer">
                     <button type="button" class="btn-secondary" id="cancelModalBtn">Cancel</button>
-                    <button type="submit" class="btn-primary" id="saveTaskBtn">Save Task</button>
+                    <button type="submit" class="btn-primary" id="saveTaskBtn"><i class="fa-solid fa-check"></i> Save Task</button>
                 </div>
             </form>
         </div>
@@ -213,7 +252,9 @@
 
     <!-- Toast Notification -->
     <div id="toast" class="toast">
-        <i class="fa-solid fa-circle-check" id="toastIcon"></i>
+        <div class="toast-icon-wrapper" id="toastIconWrapper">
+            <i class="fa-solid fa-circle-check" id="toastIcon"></i>
+        </div>
         <span id="toastMessage">Task added successfully!</span>
     </div>
 

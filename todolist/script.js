@@ -1,5 +1,5 @@
 /* ==========================================
-   TASKFLOW PRO - JAVASCRIPT APPLICATION LOGIC
+   TASKFLOW PRO - JAVASCRIPT APPLICATION LOGIC (v2)
    ========================================== */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -25,6 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const currentDateEl = document.getElementById('currentDate');
     const usernameDisplay = document.getElementById('usernameDisplay');
     const editNameBtn = document.getElementById('editNameBtn');
+    const streakCountEl = document.getElementById('streakCount');
     
     // Search & Filter Elements
     const searchInput = document.getElementById('searchInput');
@@ -32,11 +33,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const tabBtns = document.querySelectorAll('.tab-btn');
     const categoryItems = document.querySelectorAll('.cat-item');
 
+    // Quick Add Elements
+    const quickAddInput = document.getElementById('quickAddInput');
+    const quickAddBtn = document.getElementById('quickAddBtn');
+
+    // View Mode Toggle
+    const viewBtns = document.querySelectorAll('.view-btn');
+
+    // Mobile Menu
+    const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+    const sidebar = document.getElementById('sidebar');
+
     // Stats & Progress Elements
     const progressBar = document.getElementById('progressBar');
     const taskStatsText = document.getElementById('taskStatsText');
     const taskPercentage = document.getElementById('taskPercentage');
     
+    // Tab Counts
+    const tabCountAll = document.getElementById('tabCountAll');
+    const tabCountActive = document.getElementById('tabCountActive');
+    const tabCountCompleted = document.getElementById('tabCountCompleted');
+
     // Badges
     const badgeAll = document.getElementById('badgeAll');
     const badgeWork = document.getElementById('badgeWork');
@@ -94,8 +111,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentStatus = 'all';
     let searchQuery = '';
     let currentSort = 'dueDate';
+    let currentView = localStorage.getItem('taskflow_view') || 'list';
     let selectedTaskIds = new Set();
     let isDarkMode = localStorage.getItem('taskflow_darkmode') === 'true';
+    let streakCount = parseInt(localStorage.getItem('taskflow_streak')) || 1;
 
     // Initialize App
     initApp();
@@ -103,12 +122,16 @@ document.addEventListener('DOMContentLoaded', () => {
     function initApp() {
         // Set Username
         usernameDisplay.textContent = username;
+        streakCountEl.textContent = streakCount;
 
         // Set Theme
         if (isDarkMode) {
             document.documentElement.setAttribute('data-theme', 'dark');
             themeToggleBtn.innerHTML = `<i class="fa-solid fa-sun"></i> <span>Light Mode</span>`;
         }
+
+        // Set View Mode
+        setViewMode(currentView);
 
         // Set Date Header
         updateDateHeader();
@@ -148,16 +171,50 @@ document.addEventListener('DOMContentLoaded', () => {
         // Form Submit
         taskForm.addEventListener('submit', handleTaskFormSubmit);
 
-        // Search
+        // Search & Keyboard Shortcut '/'
         searchInput.addEventListener('input', (e) => {
             searchQuery = e.target.value.trim().toLowerCase();
             renderTasks();
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === '/' && document.activeElement !== searchInput && document.activeElement !== taskTitleInput && document.activeElement !== taskDescInput && document.activeElement !== quickAddInput) {
+                e.preventDefault();
+                searchInput.focus();
+            }
+            if (e.key === 'Escape') {
+                closeTaskModal();
+                if (sidebar.classList.contains('mobile-open')) {
+                    sidebar.classList.remove('mobile-open');
+                }
+            }
+        });
+
+        // Quick Add
+        quickAddBtn.addEventListener('click', handleQuickAdd);
+        quickAddInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                handleQuickAdd();
+            }
         });
 
         // Sort
         sortSelect.addEventListener('change', (e) => {
             currentSort = e.target.value;
             renderTasks();
+        });
+
+        // View Mode Toggles
+        viewBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const view = btn.getAttribute('data-view');
+                setViewMode(view);
+            });
+        });
+
+        // Mobile Menu Toggle
+        mobileMenuBtn.addEventListener('click', () => {
+            sidebar.classList.toggle('mobile-open');
         });
 
         // Category Filter
@@ -167,6 +224,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 item.classList.add('active');
                 currentCategory = item.getAttribute('data-category');
                 renderTasks();
+                if (window.innerWidth <= 1024) {
+                    sidebar.classList.remove('mobile-open');
+                }
             });
         });
 
@@ -216,6 +276,43 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function setViewMode(view) {
+        currentView = view;
+        localStorage.setItem('taskflow_view', view);
+        viewBtns.forEach(b => {
+            if (b.getAttribute('data-view') === view) {
+                b.classList.add('active');
+            } else {
+                b.classList.remove('active');
+            }
+        });
+        if (view === 'grid') {
+            taskListEl.className = 'task-list view-grid';
+        } else {
+            taskListEl.className = 'task-list view-list';
+        }
+    }
+
+    function handleQuickAdd() {
+        const title = quickAddInput.value.trim();
+        if (!title) return;
+
+        const newTask = {
+            id: Date.now().toString(),
+            title,
+            category: currentCategory === 'all' ? 'Work' : currentCategory,
+            priority: 'medium',
+            dueDate: getFormattedDate(0),
+            description: '',
+            completed: false,
+            createdAt: new Date().toISOString()
+        };
+        tasks.unshift(newTask);
+        quickAddInput.value = '';
+        saveAndRefresh();
+        showToast('Quick task added successfully!');
+    }
+
     // Modal Functions
     function openTaskModal(task = null) {
         taskForm.reset();
@@ -230,7 +327,8 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             modalTitle.textContent = 'Create New Task';
             taskIdInput.value = '';
-            taskDueDateInput.value = getFormattedDate(0); // Default to today
+            taskCategorySelect.value = currentCategory === 'all' ? 'Work' : currentCategory;
+            taskDueDateInput.value = getFormattedDate(0);
         }
         taskModal.classList.add('active');
         taskTitleInput.focus();
@@ -253,7 +351,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!title) return;
 
         if (id) {
-            // Edit existing
             tasks = tasks.map(task => {
                 if (task.id === id) {
                     return { ...task, title, category, priority, dueDate, description };
@@ -262,7 +359,6 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             showToast('Task updated successfully!');
         } else {
-            // Create new
             const newTask = {
                 id: Date.now().toString(),
                 title,
@@ -313,15 +409,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Filter, Sort and Render Tasks
     function renderTasks() {
         let filtered = tasks.filter(task => {
-            // Category filter
             if (currentCategory !== 'all' && task.category !== currentCategory) {
                 return false;
             }
-            // Status filter
             if (currentStatus === 'active' && task.completed) return false;
             if (currentStatus === 'completed' && !task.completed) return false;
             
-            // Search query filter
             if (searchQuery) {
                 const matchTitle = task.title.toLowerCase().includes(searchQuery);
                 const matchDesc = task.description && task.description.toLowerCase().includes(searchQuery);
@@ -370,7 +463,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return `
                     <div class="task-item ${task.completed ? 'completed' : ''}" data-id="${task.id}">
                         <div class="task-left">
-                            <input type="checkbox" class="task-checkbox" ${task.completed ? 'checked' : ''} onchange="toggleTaskComplete('${task.id}')">
+                            <input type="checkbox" class="task-checkbox" ${task.completed ? 'checked' : ''} onchange="toggleTaskComplete('${task.id}')" title="Mark completed">
                             <div class="task-content">
                                 <div class="task-header-row">
                                     <span class="priority-indicator priority-${task.priority}" title="Priority: ${task.priority}"></span>
@@ -390,7 +483,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="task-actions">
                             <button class="action-btn" onclick="editTask('${task.id}')" title="Edit Task"><i class="fa-solid fa-pen"></i></button>
                             <button class="action-btn delete-btn" onclick="deleteTask('${task.id}')" title="Delete Task"><i class="fa-solid fa-trash"></i></button>
-                            <input type="checkbox" class="task-select-checkbox" style="margin-left: 8px; cursor: pointer;" ${isSelected ? 'checked' : ''} onchange="toggleSelectTask('${task.id}')" title="Select for bulk action">
+                            <input type="checkbox" class="task-select-checkbox" style="margin-left: 4px;" ${isSelected ? 'checked' : ''} onchange="toggleSelectTask('${task.id}')" title="Select for bulk action">
                         </div>
                     </div>
                 `;
@@ -398,6 +491,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         updateCategoryBadges();
+        updateTabCounts();
     }
 
     // Bulk selection helper
@@ -433,6 +527,13 @@ document.addEventListener('DOMContentLoaded', () => {
         progressBar.style.width = `${percentage}%`;
         taskStatsText.textContent = `${completed} of ${total} completed`;
         taskPercentage.textContent = `${percentage}%`;
+    }
+
+    function updateTabCounts() {
+        const catFiltered = tasks.filter(t => currentCategory === 'all' || t.category === currentCategory);
+        tabCountAll.textContent = catFiltered.length;
+        tabCountActive.textContent = catFiltered.filter(t => !t.completed).length;
+        tabCountCompleted.textContent = catFiltered.filter(t => t.completed).length;
     }
 
     function updateCategoryBadges() {
