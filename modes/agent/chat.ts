@@ -8,6 +8,7 @@ import { CliApprover, CliUI } from "../../tui/chat-ui";
 import { runApprovalFlow } from "./approval";
 import { changeStats, composeBeforeAfter } from "./diff-view";
 import { runSlash } from "./slash-commands";
+import "./git-commands"; // registers /diff /commit /review /pr
 
 export interface ChatOptions {
     /** "agent" (default) can edit files and run commands; "ask" is read-only Q&A. */
