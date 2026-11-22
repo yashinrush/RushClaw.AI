@@ -89,3 +89,40 @@ describe("AgentEngine", () => {
         expect(names).not.toContain("run_command");
     });
 });
+
+describe("todo_write and task tools", () => {
+    test("todo_write updates engine state and notifies the UI", async () => {
+        const { engine } = engineWith([
+            {
+                tool: "todo_write",
+                input: { todos: [{ content: "Read code", status: "completed" }, { content: "Fix bug", status: "in_progress" }] },
+            },
+            { text: "working" },
+        ]);
+        const seen: number[] = [];
+        engine.ui.todos = (t) => seen.push(t.length);
+        await engine.runTurn("do it");
+        expect(engine.todos.map((t) => t.status)).toEqual(["completed", "in_progress"]);
+        expect(seen).toEqual([2]);
+    });
+
+    test("task runs a read-only sub-agent and returns its report", async () => {
+        // main: call task -> (sub-agent: grep, then report) -> main: final text
+        const { engine, events } = engineWith([
+            { tool: "task", input: { description: "Find greeting", prompt: "Where is greeting defined?" } },
+            { tool: "grep", input: { pattern: "greeting" } },
+            { text: "greeting is defined in src/app.ts:1" },
+            { text: "The sub-agent found it in src/app.ts." },
+        ]);
+        const sub: string[] = [];
+        engine.ui.subagentStep = (_t, a) => sub.push(a);
+        const r = await engine.runTurn("where is greeting?");
+        expect(events).toContain("result:task");
+        expect(sub).toEqual(["Grep /greeting/"]);
+        expect(r.text).toContain("sub-agent found it");
+        // the sub-agent's grep did not enter the main history
+        const json = JSON.stringify(engine.messages);
+        expect(json).toContain("src/app.ts:1");
+        expect(json).not.toContain('"toolName":"grep"');
+    });
+});

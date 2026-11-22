@@ -5,6 +5,7 @@ import type { Approver, PermissionAnswer, PermissionRequest } from "../core/perm
 import { Activity } from "./activity";
 import { StreamingMarkdown } from "./stream-md";
 import { printToolCall, printToolError, printToolResult, toolLabel } from "./tool-display";
+import { formatTodos, type Todo } from "../core/todos";
 
 /** Terminal implementation of the engine's progress callbacks. */
 export class CliUI implements EngineUI {
@@ -62,6 +63,21 @@ export class CliUI implements EngineUI {
         printToolError(name, error);
         this.setLabel("Thinking…");
         this.activity.start(this.label);
+    }
+
+    todos(todos: Todo[]): void {
+        const wasRunning = this.activity.running;
+        this.activity.stop();
+        console.log(formatTodos(todos));
+        if (wasRunning) this.activity.start(this.label);
+    }
+
+    subagentStep(task: string, action: string): void {
+        const wasRunning = this.activity.running;
+        this.activity.stop();
+        console.log(chalk.dim(`  ⎿  ↳ ${action}`));
+        this.setLabel(`Sub-agent: ${task}…`);
+        if (wasRunning) this.activity.start(this.label);
     }
 
     info(message: string): void {

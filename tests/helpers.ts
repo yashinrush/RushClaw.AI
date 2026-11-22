@@ -34,6 +34,26 @@ export type ScriptedStep =
 export function scriptedModel(steps: ScriptedStep[]) {
     let call = 0;
     const model = new MockLanguageModelV4({
+        doGenerate: async () => {
+            const step = steps[Math.min(call, steps.length - 1)]!;
+            call++;
+            if ("text" in step) {
+                return {
+                    content: [{ type: "text", text: step.text }],
+                    finishReason: { unified: "stop", raw: "stop" },
+                    usage,
+                    warnings: [],
+                } as any;
+            }
+            return {
+                content: [
+                    { type: "tool-call", toolCallId: `call_${call}`, toolName: step.tool, input: JSON.stringify(step.input) },
+                ],
+                finishReason: { unified: "tool-calls", raw: "tool_calls" },
+                usage,
+                warnings: [],
+            } as any;
+        },
         doStream: async () => {
             const step = steps[Math.min(call, steps.length - 1)]!;
             call++;

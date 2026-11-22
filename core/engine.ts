@@ -11,6 +11,8 @@ import { loadMemory, type LoadedMemory } from "./memory";
 import { PermissionGate, type Approver } from "./permissions";
 import { buildSystemPrompt, type PromptMode } from "./system-prompt";
 import { UsageTracker } from "./usage";
+import { createTodoTool, type Todo } from "./todos";
+import { createTaskTool } from "./subagent";
 import { CheckpointStore, type RestoreResult, type Checkpoint } from "./checkpoints";
 
 export type UserContent = Extract<ModelMessage, { role: "user" }>["content"];
@@ -26,6 +28,10 @@ export interface EngineUI {
     toolError?(name: string, error: unknown, input: unknown): void;
     /** Status / warning lines (fallback switches, auto-compaction…). */
     info?(message: string): void;
+    /** The agent updated its todo checklist. */
+    todos?(todos: Todo[]): void;
+    /** A sub-agent (task tool) called one of its tools. */
+    subagentStep?(task: string, action: string): void;
 }
 
 export interface EngineOptions {
@@ -72,6 +78,8 @@ export class AgentEngine {
     readonly mode: "agent" | "ask";
     ui: EngineUI;
     messages: ModelMessage[] = [];
+    /** The agent's current checklist (todo_write). */
+    todos: Todo[] = [];
     readonly checkpoints: CheckpointStore;
     /** Tools added by integrations (MCP, todo, sub-agents…). */
     extraTools: ToolSet = {};
@@ -150,6 +158,8 @@ export class AgentEngine {
                 });
         return {
             ...base,
+            ...(this.mode === "agent" ? { todo_write: createTodoTool(this, (t) => this.ui.todos?.(t)) } : {}),
+            task: createTaskTool(this),
             ...(this.hasWeb ? createWebTools(this.tracker) : {}),
             ...this.extraTools,
         };
@@ -318,6 +328,7 @@ export class AgentEngine {
     reset(): void {
         this.messages = [];
         this.notes = [];
+        this.todos = [];
         this.executor.clearStaging();
         this.tracker.clear();
         this.usage = new UsageTracker();

@@ -7,6 +7,7 @@ import { configPaths, PROJECT_CONFIG_FILE, type PermissionMode } from "../../cor
 import { INIT_PROMPT, MEMORY_FILE } from "../../core/memory";
 import { defaultModelSpec, formatModelSpec, hasProviderKey, parseModelSpec } from "../../ai/ai.config";
 import { renderTerminalMarkdown } from "../../tui/terminal-md";
+import { formatTodos } from "../../core/todos";
 
 export interface SlashContext {
     engine: AgentEngine;
@@ -200,6 +201,14 @@ registerSlash(
                     chalk.dim(`\n  See rushclaw.config.example.json for every option (copy it to ${PROJECT_CONFIG_FILE}).\n`),
                 ].join("\n"),
             );
+        },
+    },
+    {
+        name: "todos",
+        description: "Show the agent's current todo checklist",
+        agentOnly: true,
+        async run({ engine }) {
+            console.log(`\n${chalk.bold("Todos")}\n${formatTodos(engine.todos)}\n`);
         },
     },
     {
