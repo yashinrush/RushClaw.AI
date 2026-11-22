@@ -2,6 +2,7 @@ import chalk from "chalk";
 import { isCancel, select, text } from "@clack/prompts";
 import { AgentEngine, type UserContent } from "../../core/engine";
 import type { PermissionMode } from "../../core/config";
+import type { McpServerStatus } from "../../core/mcp";
 import { printError } from "../../core/errors";
 import { CliApprover, CliUI } from "../../tui/chat-ui";
 import { runApprovalFlow } from "./approval";
@@ -118,6 +119,14 @@ export async function reviewStagedChanges(engine: AgentEngine): Promise<void> {
     for (const e of res.errors) console.log(chalk.red(`  • ${e}`));
 }
 
+export function printMcpStatus(status: McpServerStatus[]) {
+    for (const s of status) {
+        if (s.ok) console.log(`${chalk.green("🔌")} MCP ${chalk.bold(s.name)} ${chalk.dim(`· ${s.tools.length} tool(s)`)}`);
+        else console.log(`${chalk.red("🔌")} MCP ${chalk.bold(s.name)} ${chalk.red(`failed: ${s.error}`)}`);
+    }
+    if (status.length) console.log();
+}
+
 /** Interactive list of saved sessions for this project. */
 export async function pickSession(engine: AgentEngine) {
     const list = engine.sessions.list().filter((s) => s.mode === engine.mode);
@@ -176,6 +185,12 @@ export async function runChat(opts: ChatOptions = {}): Promise<void> {
     }
     for (const h of chatHooks) await h.setup?.(engine, ui);
     printHeader(engine);
+    if (Object.keys(engine.config.mcpServers).length && engine.mode === "agent") {
+        ui.activity.start("Connecting MCP servers…");
+        const status = await engine.connectMcp();
+        ui.activity.stop();
+        printMcpStatus(status);
+    }
 
     const runPrompt = async (prompt: string) => {
         let content: string | UserContent = prompt;
@@ -228,6 +243,7 @@ export async function runChat(opts: ChatOptions = {}): Promise<void> {
     } finally {
         if (engine.pending().length) engine.rejectAll();
         for (const h of chatHooks) await h.teardown?.(engine);
+        await engine.close();
         console.log(chalk.dim("\nLeft the chat.\n"));
     }
 }

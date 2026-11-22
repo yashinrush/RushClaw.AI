@@ -236,6 +236,33 @@ registerSlash(
         },
     },
     {
+        name: "mcp",
+        args: "[reconnect]",
+        description: "List connected MCP servers and their tools",
+        agentOnly: true,
+        async run({ engine, args }) {
+            if (!Object.keys(engine.config.mcpServers).length) {
+                console.log(chalk.dim(`No MCP servers configured. Add "mcpServers" to ${PROJECT_CONFIG_FILE} (see rushclaw.config.example.json).`));
+                return;
+            }
+            if (args === "reconnect" || !engine.mcp) {
+                console.log(chalk.dim("Connecting MCP servers…"));
+                await engine.connectMcp();
+            }
+            for (const s of engine.mcp?.status ?? []) {
+                if (!s.ok) {
+                    console.log(`${chalk.red("✗")} ${chalk.bold(s.name)} ${chalk.red(s.error ?? "")}`);
+                    continue;
+                }
+                console.log(`${chalk.green("✓")} ${chalk.bold(s.name)} ${chalk.dim(`(${s.tools.length} tools)`)}`);
+                for (const t of s.tools) console.log(chalk.dim(`    ${t}`));
+            }
+            const always = engine.gate.alwaysAllowedKeys().filter((k) => k.startsWith("mcp:"));
+            if (always.length) console.log(chalk.dim(`\n  Always allowed this session: ${always.join(", ")}`));
+            console.log();
+        },
+    },
+    {
         name: "hooks",
         description: "List configured hooks (preToolUse / postToolUse / postApply)",
         async run({ engine }) {

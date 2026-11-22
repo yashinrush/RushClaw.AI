@@ -14,6 +14,7 @@ import { UsageTracker } from "./usage";
 import { createTodoTool, type Todo } from "./todos";
 import { compactedHistory, summarizeConversation } from "./compact";
 import { runHooks, wrapToolsWithHooks } from "./hooks";
+import { McpManager, type McpServerStatus } from "./mcp";
 import { SessionStore, newSessionId, titleFrom, type SessionData } from "./session";
 import { createTaskTool } from "./subagent";
 import { CheckpointStore, type RestoreResult, type Checkpoint } from "./checkpoints";
@@ -90,8 +91,9 @@ export class AgentEngine {
     sessionId = newSessionId();
     private createdAt = new Date().toISOString();
     private readonly persist: boolean;
-    /** Tools added by integrations (MCP, todo, sub-agents…). */
+    /** Tools added by integrations. */
     extraTools: ToolSet = {};
+    mcp: McpManager | null = null;
 
     private notes: string[] = [];
 
@@ -172,9 +174,25 @@ export class AgentEngine {
             ...(this.mode === "agent" ? { todo_write: createTodoTool(this, (t) => this.ui.todos?.(t)) } : {}),
             task: createTaskTool(this),
             ...(this.hasWeb ? createWebTools(this.tracker) : {}),
+            ...(this.mcp?.tools ?? {}),
             ...this.extraTools,
         };
         return wrapToolsWithHooks(all, this.config.hooks, this.root, (m) => this.ui.info?.(m));
+    }
+
+    /** Connect the MCP servers from config (no-op when none are configured). */
+    async connectMcp(): Promise<McpServerStatus[]> {
+        const servers = this.config.mcpServers;
+        if (!Object.keys(servers).length || this.mode !== "agent") return [];
+        await this.mcp?.close();
+        this.mcp = new McpManager(this.gate, this.config.autoApproveMcpTools);
+        return this.mcp.connect(servers, this.root);
+    }
+
+    /** Release external resources (MCP connections). */
+    async close(): Promise<void> {
+        await this.mcp?.close();
+        this.mcp = null;
     }
 
     /** Run postApply hooks (formatters, linters…) after files were written. */
