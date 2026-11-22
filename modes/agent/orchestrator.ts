@@ -8,6 +8,8 @@ import { createAgentTools } from "./agent-tools";
 import { getAgentModel } from "../../ai";
 import { runApprovalFlow } from "./approval";
 import { renderTerminalMarkdown } from "../../tui/terminal-md";
+import { buildSystemPrompt } from "../../core/system-prompt";
+import { loadMemory } from "../../core/memory";
 
 export async function runAgentMode() {
     console.log(chalk.bold("\n🤖 Agent Mode\n"));
@@ -27,10 +29,13 @@ export async function runAgentMode() {
     const agent = new ToolLoopAgent({
         model: getAgentModel(),
         stopWhen: stepCountIs(40),
-        instructions: [
-            `Workspace root: ${config.codebasePath}`,
-            "All mutations are staged until approval.",
-        ].join("\n"),
+        instructions: buildSystemPrompt({
+            mode: "agent",
+            root: config.codebasePath,
+            permissionMode: "review",
+            memory: loadMemory(config.codebasePath),
+            toolNames: Object.keys(tools),
+        }),
         tools,
     });
 

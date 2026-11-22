@@ -1,9 +1,10 @@
-import { tool, ToolLoopAgent, stepCountIs } from "ai";
-import { z } from "zod";
+import { ToolLoopAgent, stepCountIs } from "ai";
 import { getAgentModel } from "../../ai/ai.config.ts";
 import { ActionTracker } from "../agent/action-tracker.ts";
 import { ToolExecutor } from "../agent/tool-executor.ts";
-import { createAgentTools } from "../agent/agent-tools.ts";
+import { createAgentTools, createReadOnlyTools } from "../agent/agent-tools.ts";
+import { buildSystemPrompt, type PromptMode } from "../../core/system-prompt.ts";
+import { loadMemory } from "../../core/memory.ts";
 import { defaultAgentConfig, type AgentConfig } from "../agent/types.ts";
 import { createWebTools } from "../plan/web-tools.ts";
 import type { Plan, PlanStep } from "../plan/types.ts";
@@ -19,45 +20,17 @@ function readOnlyConfig(): AgentConfig {
     return c;
 }
 
-function agentOptions(config: AgentConfig, maxSteps: number) {
+function agentOptions(config: AgentConfig, maxSteps: number, mode: PromptMode = "agent", toolNames: string[] = []) {
     return {
         model: getAgentModel(),
         stopWhen: stepCountIs(maxSteps),
-        instructions: `Workspace root: ${config.codebasePath}`,
-    };
-}
-
-function createReadOnlyTools(executor: ToolExecutor) {
-    return {
-        read_file: tool({
-            description: "Read a workspace file (relative path).",
-            inputSchema: z.object({ path: z.string() }),
-            execute: async ({ path: p }) => executor.readFile(p),
-        }),
-        list_files: tool({
-            description: "List files/dirs at a path.",
-            inputSchema: z.object({
-                path: z.string(),
-                recursive: z.boolean().optional().default(false),
-            }),
-            execute: async ({ path: p, recursive }) =>
-                executor.listFiles(p, recursive),
-        }),
-        search_files: tool({
-            description:
-                "Find files matching a glob pattern; optional content filter.",
-            inputSchema: z.object({
-                root: z.string(),
-                pattern: z.string(),
-                content_contains: z.string().optional(),
-            }),
-            execute: async ({ root, pattern, content_contains }) =>
-                executor.searchFiles(root, pattern, content_contains),
-        }),
-        analyze_codebase: tool({
-            description: "Summarize the codebase structure.",
-            inputSchema: z.object({ path: z.string().default(".") }),
-            execute: async ({ path: p }) => executor.analyzeCodebase(p),
+        instructions: buildSystemPrompt({
+            mode,
+            root: config.codebasePath,
+            permissionMode: "review",
+            memory: loadMemory(config.codebasePath),
+            hasWeb: !!process.env.FIRECRAWL_API_KEY,
+            toolNames,
         }),
     };
 }
@@ -73,7 +46,7 @@ export async function runAsk(ctx: { reply: (t: string, o?: object) => Promise<un
     const executor = new ToolExecutor(tracker, config);
     const tools = { ...createReadOnlyTools(executor), ...extraWebTools(tracker) };
     const agent = new ToolLoopAgent({
-        ...agentOptions(config, 20),
+        ...agentOptions(config, 20, "ask"),
         tools,
     });
 
@@ -87,7 +60,7 @@ export async function runAgent(ctx: { reply: (t: string, o?: object) => Promise<
     const executor = new ToolExecutor(tracker, config);
     const tools = createAgentTools(executor);
     const agent = new ToolLoopAgent({
-        ...agentOptions(config, 40),
+        ...agentOptions(config, 40, "agent", Object.keys(tools)),
         tools,
     });
     const { text } = await agent.generate({ prompt: goal });
@@ -110,7 +83,7 @@ export async function runPlanSteps(
         await ctx.reply(`🔧 Executing: *${step.title}*`, { parse_mode: 'Markdown' });
         const prompt = [`Goal: ${plan.goal}`, `Step: ${step.title}`, step.description].join('\n');
         const agent = new ToolLoopAgent({
-            ...agentOptions(config, 30),
+            ...agentOptions(config, 30, "agent", Object.keys(tools)),
             tools,
         });
         const { text } = await agent.generate({ prompt });

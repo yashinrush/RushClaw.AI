@@ -12,6 +12,8 @@ import { generatePlan } from "./planner.ts";
 import { printPlan, selectSteps } from "./selection.ts";
 import type { PlanStep } from "./types.ts";
 import { createWebTools } from "./web-tools.ts";
+import { buildSystemPrompt } from "../../core/system-prompt.ts";
+import { loadMemory } from "../../core/memory.ts";
 
 
 function stepPrompt(goal: string, step: PlanStep): string {
@@ -68,6 +70,14 @@ export async function runPlanMode(): Promise<void> {
         const agent = new ToolLoopAgent({
             model: getAgentModel(),
             stopWhen: stepCountIs(30),
+            instructions: buildSystemPrompt({
+                mode: "agent",
+                root: config.codebasePath,
+                permissionMode: "review",
+                memory: loadMemory(config.codebasePath),
+                hasWeb: !!process.env.FIRECRAWL_API_KEY,
+                toolNames: Object.keys(tools),
+            }),
             tools
         });
 
