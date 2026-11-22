@@ -1,13 +1,11 @@
-import { Markup } from 'telegraf';
-import type { ActionTracker } from '../agent/action-tracker.ts';
-import type { ToolExecutor } from '../agent/tool-executor.ts';
+import { Markup, type Context } from 'telegraf';
+import type { AgentEngine } from '../../core/engine.ts';
 import type { ActionLog } from '../agent/types.ts';
-import { composeBeforeAfter, formatPatch } from '../agent/diff-view.ts';
+import { changeStats, composeBeforeAfter, formatPatch } from '../agent/diff-view.ts';
 import { clip } from './text.ts';
 
 export interface ApprovalSession {
-    tracker: ActionTracker;
-    executor: ToolExecutor;
+    engine: AgentEngine;
     pending: ActionLog[];
 }
 
@@ -29,8 +27,11 @@ function groupPending(pending: ActionLog[]) {
 export function approvalSummary(pending: ActionLog[]): string {
     const { files, shells } = groupPending(pending);
     const fileLines = [...files].map(([path, actions]) => {
+        const sorted = [...actions].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+        const { before, after } = composeBeforeAfter(sorted);
+        const { added, removed } = changeStats(before, after);
         const types = [...new Set(actions.map((a) => a.type.replace(/_/g, ' ')))].join(', ');
-        return `📄 ${path} (${types})`;
+        return `📄 ${path} (${types}) +${added} -${removed}`;
     });
     const shellLines = shells.map((s) => `🖥 Shell: ${s.details.command}`);
     return ['Staged changes — review before applying', '', ...fileLines, ...shellLines, '', `Total: ${pending.length} change(s)`].join('\n');
@@ -48,13 +49,20 @@ export function approvalDiff(pending: ActionLog[]): string {
     return parts.join('\n\n').trim();
 }
 
-async function promptApproval(
-    ctx: { reply: (t: string, o?: object) => Promise<unknown> },
+/** Show the staged changes with Diff / Accept / Reject buttons. */
+export async function finishOrApprove(
+    ctx: Context,
     chatId: number,
-    session: ApprovalSession,
+    engine: AgentEngine,
+    noChangesMsg: string,
 ) {
-    approvalSessions.set(chatId, session);
-    await ctx.reply(approvalSummary(session.pending), {
+    const pending = engine.pending();
+    if (pending.length === 0) {
+        await ctx.reply(noChangesMsg);
+        return;
+    }
+    approvalSessions.set(chatId, { engine, pending });
+    await ctx.reply(approvalSummary(pending), {
         ...Markup.inlineKeyboard([
             [Markup.button.callback('📋 Show Diff', 'approval_diff')],
             [
@@ -65,17 +73,10 @@ async function promptApproval(
     });
 }
 
-export async function finishOrApprove(
-    ctx: { reply: (t: string, o?: object) => Promise<unknown> },
-    chatId: number,
-    tracker: ActionTracker,
-    executor: ToolExecutor,
-    noChangesMsg: string,
-) {
-    const pending = tracker.getPendingMutations();
-    if (pending.length === 0) {
-        await ctx.reply(noChangesMsg);
-        return;
-    }
-    await promptApproval(ctx, chatId, { tracker, executor, pending });
+/** Apply everything in the session (checkpointed; postApply hooks run). */
+export async function acceptSession(s: ApprovalSession) {
+    for (const a of s.pending) s.engine.tracker.updateStatus(a.id, 'approved', true);
+    const res = s.engine.applyApproved();
+    await s.engine.runPostApplyHooks(res.applied);
+    return res;
 }

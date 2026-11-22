@@ -1,94 +1,84 @@
-import { ToolLoopAgent, stepCountIs } from "ai";
-import { getAgentModel } from "../../ai/ai.config.ts";
-import { ActionTracker } from "../agent/action-tracker.ts";
-import { ToolExecutor } from "../agent/tool-executor.ts";
-import { createAgentTools, createReadOnlyTools } from "../agent/agent-tools.ts";
-import { buildSystemPrompt, type PromptMode } from "../../core/system-prompt.ts";
-import { loadMemory } from "../../core/memory.ts";
-import { defaultAgentConfig, type AgentConfig } from "../agent/types.ts";
-import { createWebTools } from "../plan/web-tools.ts";
+import type { Context } from "telegraf";
+import { AgentEngine } from "../../core/engine.ts";
 import type { Plan, PlanStep } from "../plan/types.ts";
+import { stepPrompt } from "../plan/orchestrator.ts";
 import { replyMd } from "./text.ts";
 import { finishOrApprove } from "./approval-session.ts";
+import { TelegramProgress } from "./progress.ts";
 
-function readOnlyConfig(): AgentConfig {
-    const c = defaultAgentConfig();
-    c.tools.allowFileCreation = false;
-    c.tools.allowFileModification = false;
-    c.tools.allowFolderCreation = false;
-    c.tools.allowShellExecution = false;
-    return c;
+/** Tasks that take at least this long end with a separate (notifying) message. */
+const NOTIFY_AFTER_MS = 20_000;
+
+/**
+ * Telegram runs without an interactive approver: allowlisted commands run,
+ * other commands are queued for the Accept/Reject buttons, and edits are staged
+ * for review (checkpointed when applied, so /undo works).
+ */
+function newEngine(mode: "agent" | "ask", progress: TelegramProgress) {
+    return new AgentEngine({ mode, ui: progress.ui(), permissionMode: "review" });
 }
 
-function agentOptions(config: AgentConfig, maxSteps: number, mode: PromptMode = "agent", toolNames: string[] = []) {
-    return {
-        model: getAgentModel(),
-        stopWhen: stepCountIs(maxSteps),
-        instructions: buildSystemPrompt({
-            mode,
-            root: config.codebasePath,
-            permissionMode: "review",
-            memory: loadMemory(config.codebasePath),
-            hasWeb: !!process.env.FIRECRAWL_API_KEY,
-            toolNames,
-        }),
-    };
+async function notifyDone(ctx: Context, progress: TelegramProgress, label: string) {
+    if (Date.now() - progress.startedAt < NOTIFY_AFTER_MS) return;
+    await ctx.reply(`🔔 ${label} finished after ${progress.elapsed()}.`);
 }
 
-function extraWebTools(tracker: ActionTracker) {
-    return process.env.FIRECRAWL_API_KEY ? createWebTools(tracker) : {};
-}
-
-
-export async function runAsk(ctx: { reply: (t: string, o?: object) => Promise<unknown> }, question: string) {
-    const config = readOnlyConfig();
-    const tracker = new ActionTracker();
-    const executor = new ToolExecutor(tracker, config);
-    const tools = { ...createReadOnlyTools(executor), ...extraWebTools(tracker) };
-    const agent = new ToolLoopAgent({
-        ...agentOptions(config, 20, "ask"),
-        tools,
-    });
-
-    const { text } = await agent.generate({ prompt: question });
-    await replyMd(ctx, text || ("no answer"))
-}
-
-export async function runAgent(ctx: { reply: (t: string, o?: object) => Promise<unknown> }, chatId: number, goal: string) {
-    const config = defaultAgentConfig();
-    const tracker = new ActionTracker();
-    const executor = new ToolExecutor(tracker, config);
-    const tools = createAgentTools(executor);
-    const agent = new ToolLoopAgent({
-        ...agentOptions(config, 40, "agent", Object.keys(tools)),
-        tools,
-    });
-    const { text } = await agent.generate({ prompt: goal });
-    if (text?.trim()) await replyMd(ctx, text.trim());
-    await finishOrApprove(ctx, chatId, tracker, executor, '✅ Done. No file changes were needed.');
-}
-
-export async function runPlanSteps(
-    ctx: { reply: (t: string, o?: object) => Promise<unknown> },
-    chatId: number,
-    plan: Plan,
-    steps: PlanStep[],
-) {
-    const config = defaultAgentConfig();
-    const tracker = new ActionTracker();
-    const executor = new ToolExecutor(tracker, config);
-    const tools = { ...createAgentTools(executor), ...extraWebTools(tracker) };
-
-    for (const step of steps) {
-        await ctx.reply(`🔧 Executing: *${step.title}*`, { parse_mode: 'Markdown' });
-        const prompt = [`Goal: ${plan.goal}`, `Step: ${step.title}`, step.description].join('\n');
-        const agent = new ToolLoopAgent({
-            ...agentOptions(config, 30, "agent", Object.keys(tools)),
-            tools,
-        });
-        const { text } = await agent.generate({ prompt });
-        if (text?.trim()) await replyMd(ctx, text.trim());
+export async function runAsk(ctx: Context, question: string) {
+    const progress = new TelegramProgress(ctx, "🔍 Researching your question…");
+    await progress.start();
+    const engine = newEngine("ask", progress);
+    try {
+        const r = await engine.runTurn(question);
+        await progress.done(`✅ Done · ${engine.usage.formatTurn()}`);
+        await replyMd(ctx, r.text || "(no answer)");
+        await notifyDone(ctx, progress, "Ask");
+    } catch (e) {
+        await progress.done("❌ Failed");
+        throw e;
     }
+}
 
-    await finishOrApprove(ctx, chatId, tracker, executor, '✅ All steps done. No file changes needed.');
+export async function runAgent(ctx: Context, chatId: number, goal: string) {
+    const progress = new TelegramProgress(ctx, "🤖 Agent is working on your task…");
+    await progress.start();
+    const engine = newEngine("agent", progress);
+    await engine.connectMcp();
+    try {
+        const r = await engine.runTurn(goal);
+        await progress.done(`✅ Done · ${engine.usage.formatTurn()}`);
+        if (r.text.trim()) await replyMd(ctx, r.text.trim());
+        await finishOrApprove(ctx, chatId, engine, "✅ Done. No file changes were needed.");
+        await notifyDone(ctx, progress, "Agent task");
+    } catch (e) {
+        await progress.done("❌ Failed");
+        engine.rejectAll();
+        throw e;
+    } finally {
+        await engine.close();
+    }
+}
+
+export async function runPlanSteps(ctx: Context, chatId: number, plan: Plan, steps: PlanStep[]) {
+    const progress = new TelegramProgress(ctx, `🧭 Executing ${steps.length} plan step(s)…`);
+    await progress.start();
+    const engine = newEngine("agent", progress);
+    await engine.connectMcp();
+    let lastText = "";
+    try {
+        for (const [i, step] of steps.entries()) {
+            progress.log(`🔧 Step ${i + 1}/${steps.length}: ${step.title}`);
+            const r = await engine.runTurn(stepPrompt(plan, step, i, steps.length));
+            lastText = r.text.trim() || lastText;
+        }
+        await progress.done(`✅ All steps done · ${engine.usage.formatTurn()}`);
+        if (lastText) await replyMd(ctx, lastText);
+        await finishOrApprove(ctx, chatId, engine, "✅ All steps done. No file changes needed.");
+        await notifyDone(ctx, progress, "Plan");
+    } catch (e) {
+        await progress.done("❌ Failed");
+        engine.rejectAll();
+        throw e;
+    } finally {
+        await engine.close();
+    }
 }
