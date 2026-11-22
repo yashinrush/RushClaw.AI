@@ -1,6 +1,9 @@
 import { tool } from "ai";
 import { z } from "zod";
 import type { ToolExecutor } from "./tool-executor";
+import { DEFAULT_ALLOWED_COMMANDS } from "../../core/config";
+import { PermissionGate, commandFamily, isCommandAllowed } from "../../core/permissions";
+import { formatShellResult, runShell } from "../../core/shell";
 
 /**
  * Read-only workspace tools. Shared by Agent, Ask, Plan, sub-agents and Telegram
@@ -91,7 +94,7 @@ export function createReadOnlyTools(executor: ToolExecutor) {
     };
 }
 
-export function createAgentTools(executor: ToolExecutor) {
+export function createAgentTools(executor: ToolExecutor, opts: AgentToolOptions = {}) {
     return {
         ...createReadOnlyTools(executor),
 
@@ -149,13 +152,69 @@ export function createAgentTools(executor: ToolExecutor) {
             execute: async ({ path: p }) => executor.createFolder(p),
         }),
 
-        execute_shell: tool({
-            description:
-                "Queue a shell command to run in the workspace after user approval. Use with care.",
-            inputSchema: z.object({
-                command: z.string().describe("Single command; runs with shell: true"),
-            }),
-            execute: async ({ command }) => executor.queueShell(command),
-        }),
+        run_command: createRunCommandTool(executor, opts),
     };
+}
+
+export interface AgentToolOptions {
+    /** Interactive permission gate for commands outside the allowlist. */
+    gate?: PermissionGate;
+    allowedCommands?: string[];
+    commandTimeoutMs?: number;
+    /** True when edits are written to disk immediately (auto-edit mode). */
+    editsAreOnDisk?: () => boolean;
+}
+
+/**
+ * run_command executes immediately and returns the output, so the agent can run
+ * tests / type-checks and fix its own mistakes. Allowlisted commands run without
+ * asking; anything else needs the user's OK (or is queued when nobody can be asked).
+ */
+export function createRunCommandTool(executor: ToolExecutor, opts: AgentToolOptions = {}) {
+    const allowed = opts.allowedCommands ?? DEFAULT_ALLOWED_COMMANDS;
+    const gate = opts.gate ?? new PermissionGate();
+    return tool({
+        description: [
+            "Run a shell command in the workspace root and get its output (exit code, stdout, stderr).",
+            "Use it to verify your work: run tests, type-checks, linters, builds, git status/diff.",
+            `Allowlisted (run without asking): ${allowed.slice(0, 18).join(", ")}${allowed.length > 18 ? ", …" : ""}.`,
+            "Other commands need the user's approval. One command per call; avoid long-running servers/watchers.",
+        ].join("\n"),
+        inputSchema: z.object({
+            command: z.string().describe("The command line to run"),
+            timeout_seconds: z.number().int().min(1).max(600).optional(),
+        }),
+        execute: async ({ command, timeout_seconds }, { abortSignal }) => {
+            let permitted = isCommandAllowed(command, allowed);
+            if (!permitted) {
+                const family = commandFamily(command);
+                const verdict = await gate.check({
+                    kind: "command",
+                    title: "Allow RushClaw to run this command?",
+                    detail: command,
+                    alwaysKey: `cmd:${family}`,
+                    alwaysLabel: `\`${family} …\` commands`,
+                });
+                if (verdict === "denied")
+                    return `The user denied running: ${command}. Do not retry it; continue without it or ask the user.`;
+                if (verdict === "no-approver") {
+                    executor.queueShell(command);
+                    return `"${command}" is not on the allowlist and no interactive approval is available, so it was QUEUED. It runs only if the user approves it after this turn; its output is not available to you.`;
+                }
+                permitted = true;
+            }
+
+            const r = await runShell(command, {
+                cwd: executor.root,
+                timeoutMs: (timeout_seconds ?? 0) * 1000 || opts.commandTimeoutMs || 120_000,
+                signal: abortSignal,
+            });
+            let out = formatShellResult(command, r);
+            const staged = executor.stagedPaths();
+            if (staged.length && !opts.editsAreOnDisk?.()) {
+                out += `\n\nNote: ${staged.length} staged change(s) (${staged.slice(0, 5).join(", ")}${staged.length > 5 ? ", …" : ""}) are NOT on disk yet — this command ran against the files currently on disk.`;
+            }
+            return out;
+        },
+    });
 }

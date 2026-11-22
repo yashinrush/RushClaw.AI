@@ -1,0 +1,50 @@
+{
+  "$comment": "Copy to rushclaw.config.json (project) or ~/.rushclaw/config.json (user). Every key is optional.",
+
+  "model": "gemini:gemini-3.5-flash-lite",
+  "fallbackModels": ["openrouter:openrouter/auto"],
+
+  "permissionMode": "review",
+  "maxSteps": 40,
+  "subagentMaxSteps": 25,
+  "compactAtTokens": 120000,
+  "commandTimeoutMs": 120000,
+
+  "allowedCommands": [
+    "bun test",
+    "bunx tsc --noEmit",
+    "bun run lint",
+    "git status",
+    "git diff",
+    "git log"
+  ],
+
+  "excludePatterns": ["node_modules", ".git", "dist", "build", ".next", "*.log", ".env*"],
+
+  "hooks": {
+    "preToolUse": [
+      { "matcher": "edit_file|modify_file|delete_file", "command": "node scripts/protect-paths.js" }
+    ],
+    "postToolUse": [],
+    "postApply": [
+      { "command": "bunx prettier --write $RUSHCLAW_CHANGED_FILES" }
+    ]
+  },
+
+  "mcpServers": {
+    "filesystem-docs": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "./docs"]
+    },
+    "remote-example": {
+      "type": "http",
+      "url": "https://example.com/mcp",
+      "headers": { "Authorization": "Bearer YOUR_TOKEN" }
+    }
+  },
+  "autoApproveMcpTools": false,
+
+  "pricing": {
+    "gemini-3.5-flash-lite": { "input": 0.1, "output": 0.4 }
+  }
+}

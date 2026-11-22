@@ -1,3 +1,5 @@
+import { loadConfig } from '../../core/config';
+
 export type ActionType =
     | 'file_create'
     | 'file_modify'
@@ -37,18 +39,14 @@ export interface AgentConfig {
     };
 }
 
-export const defaultAgentConfig = (): AgentConfig => ({
-    codebasePath: process.cwd(),
+export const defaultAgentConfig = (
+    codebasePath: string = process.cwd(),
+    excludePatterns: string[] = loadConfig(codebasePath).excludePatterns,
+): AgentConfig => ({
+    codebasePath,
     maxFileSizeToRead: 1024 * 1024,
-    excludePatterns: [
-        'node_modules',
-        '.git',
-        'dist',
-        'build',
-        '.next',
-        '*.log',
-        '.env*',
-    ],
+    // .env files are always excluded so secrets never reach the model.
+    excludePatterns: [...new Set([...excludePatterns, '.env*'])],
     tools: {
         allowShellExecution: true,
         allowFileModification: true,

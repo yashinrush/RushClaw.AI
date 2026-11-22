@@ -644,8 +644,10 @@ export class ToolExecutor {
         return text;
     }
 
-    applyApprovedFromTracker(): { errors: string[] } {
+    applyApprovedFromTracker(): { errors: string[]; applied: string[]; shellOutputs: string[] } {
         const errors: string[] = [];
+        const applied: string[] = [];
+        const shellOutputs: string[] = [];
         const all = [...this.tracker.getActions()];
 
         for (const a of all.filter(
@@ -680,6 +682,7 @@ export class ToolExecutor {
                     fs.mkdirSync(path.dirname(target), { recursive: true });
                     fs.writeFileSync(target, a.details.after ?? "", "utf8");
                 }
+                applied.push(p);
             } catch (e) {
                 errors.push(String(e));
             }
@@ -696,11 +699,13 @@ export class ToolExecutor {
                 encoding: "utf8",
                 maxBuffer: 16 * 1024 * 1024,
             });
+            const out = [r.stdout, r.stderr].filter(Boolean).join("\n").trim();
+            shellOutputs.push(`$ ${cmd} (exit ${r.status ?? "?"})${out ? `\n${out.slice(-4000)}` : ""}`);
             if (r.status && r.status !== 0)
                 errors.push(`shell exit ${r.status}: ${cmd}`);
         }
 
-        return { errors };
+        return { errors, applied, shellOutputs };
     }
 
     clearStaging(): void {
