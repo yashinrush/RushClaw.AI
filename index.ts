@@ -5,6 +5,7 @@ import { runWakeup } from "./tui/wakeup";
 import { runAgentMode } from "./modes/agent/orchestrator";
 import { runAskMode } from "./modes/ask/orchestrator";
 import { loadExtraEnv } from "./core/env";
+import { VERSION } from "./core/version";
 
 // API keys also come from ~/.rushclaw/.env and RushClaw's own .env, so the
 // globally linked CLI works inside any project.
@@ -15,7 +16,7 @@ const program = new Command();
 program
     .name("rushclaw-build")
     .description("RushClaw — an autonomous coding agent for your terminal")
-    .version("1.1.0")
+    .version(VERSION)
     // root options must come before a subcommand, so `chat -m x` stays the chat's option
     .enablePositionalOptions()
     .option("-p, --print <prompt>", "headless: run one task non-interactively and print the result (\"-\" reads the prompt from stdin)")

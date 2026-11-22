@@ -2,6 +2,7 @@ import { Telegraf } from "telegraf";
 import chalk from "chalk";
 import { WELCOME } from "./constants";
 import { registerHandlers } from "./handlers";
+import { BRAND_GRADIENT, box, gradient, prettyPath, sym, t } from "../../tui/theme";
 
 export async function runTelegramMode() {
     const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
@@ -26,7 +27,20 @@ export async function runTelegramMode() {
     bot.launch().catch((err: any) => {
         console.error(chalk.red(`Failed to launch Telegram bot: ${err?.message ?? err}`));
     });
-    console.log(chalk.green("Telegram bot is running. Press Ctrl+C to stop.\n"));
+    console.log(
+        "\n" +
+        box(
+            [
+                `${t.ok(sym.filled)} ${t.bold("Bot is running")} ${t.dim("— send it a message from Telegram")}`,
+                "",
+                `${t.muted("folder ")} ${prettyPath(process.cwd(), 50)}`,
+                `${t.muted("owner  ")} ${ownerId}`,
+                `${t.muted("try    ")} ${t.brand("/ask")} ${t.dim("·")} ${t.brand("/agent")} ${t.dim("·")} ${t.brand("/plan")} ${t.dim("·")} ${t.brand("/undo")} ${t.dim("· 🎙 voice notes")}`,
+            ],
+            { title: gradient("RushClaw · Telegram", BRAND_GRADIENT, true), padding: 2 },
+        ) +
+        t.dim("\n  ctrl+c to stop the bot\n"),
+    );
 
     await new Promise<void>((resolvePromise) => {
         const stop = () => {
