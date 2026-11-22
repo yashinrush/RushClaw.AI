@@ -9,6 +9,7 @@ import { runApprovalFlow } from "./approval";
 import { changeStats, composeBeforeAfter } from "./diff-view";
 import { runSlash } from "./slash-commands";
 import "./git-commands"; // registers /diff /commit /review /pr
+import { buildUserContent, extractImageRefs } from "../../core/images";
 
 export interface ChatOptions {
     /** "agent" (default) can edit files and run commands; "ask" is read-only Q&A. */
@@ -40,6 +41,17 @@ const chatHooks: ChatHooks[] = [];
 export function registerChatHooks(h: ChatHooks): void {
     chatHooks.push(h);
 }
+
+// Image input: "@screenshots/bug.png", a dragged-in path, or "quoted path.png".
+registerChatHooks({
+    prepareInput(engine, input) {
+        const { text, images, problems } = extractImageRefs(input, engine.root);
+        for (const img of images)
+            console.log(chalk.dim(`📎 Attached ${img.name} (${Math.round(img.bytes / 1024)} KB)`));
+        for (const p of problems) console.log(chalk.yellow(`⚠️  Couldn't attach ${p}`));
+        return buildUserContent(text, images);
+    },
+});
 
 function printHeader(engine: AgentEngine) {
     const mem = engine.memory.sources;

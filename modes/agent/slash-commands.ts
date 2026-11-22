@@ -388,7 +388,7 @@ function contentText(content: unknown): string {
     if (typeof content === "string") return content;
     if (!Array.isArray(content)) return "";
     return content
-        .map((p: any) => (p?.type === "text" ? p.text : p?.type === "image" ? "[image]" : ""))
+        .map((p: any) => (p?.type === "text" ? p.text : p?.type === "image" || p?.type === "file" ? `[${p.filename ?? "attachment"}]` : ""))
         .filter(Boolean)
         .join("\n");
 }
