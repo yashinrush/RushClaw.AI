@@ -6,6 +6,12 @@
   "bin": {
     "rushclaw-build": "./index.ts"
   },
+  "scripts": {
+    "start": "bun index.ts",
+    "chat": "bun index.ts chat",
+    "test": "bun test tests/",
+    "typecheck": "tsc --noEmit"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   },
