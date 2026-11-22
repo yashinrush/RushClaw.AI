@@ -1,5 +1,5 @@
 import chalk from "chalk";
-import { isCancel, text } from "@clack/prompts";
+import { isCancel, select, text } from "@clack/prompts";
 import { AgentEngine, type UserContent } from "../../core/engine";
 import type { PermissionMode } from "../../core/config";
 import { printError } from "../../core/errors";
@@ -15,6 +15,10 @@ export interface ChatOptions {
     permissionMode?: PermissionMode;
     /** Run this prompt (or /command) first, e.g. from `rushclaw chat "fix the build"`. */
     initialPrompt?: string;
+    /** Continue the most recent session of this mode. */
+    continueLast?: boolean;
+    /** Resume a specific session id, or `true` to pick from a list. */
+    resume?: string | boolean;
 }
 
 /** Hooks other modules use to extend the chat (sessions, MCP, images…). */
@@ -113,6 +117,36 @@ export async function reviewStagedChanges(engine: AgentEngine): Promise<void> {
     for (const e of res.errors) console.log(chalk.red(`  • ${e}`));
 }
 
+/** Interactive list of saved sessions for this project. */
+export async function pickSession(engine: AgentEngine) {
+    const list = engine.sessions.list().filter((s) => s.mode === engine.mode);
+    if (!list.length) {
+        console.log(chalk.dim("No saved sessions for this project yet."));
+        return null;
+    }
+    const id = await select({
+        message: "Resume which conversation?",
+        options: list.slice(0, 25).map((s) => ({
+            value: s.id,
+            label: s.title,
+            hint: `${s.updatedAt.replace("T", " ").slice(0, 16)} · ${s.turns} turn(s)`,
+        })),
+    });
+    if (isCancel(id)) return null;
+    return engine.sessions.load(id as string);
+}
+
+export function printResumed(engine: AgentEngine, title: string) {
+    const turns = engine.messages.filter((m) => m.role === "user").length;
+    console.log(chalk.green(`↺ Resumed "${title}" (${turns} turn(s), session ${engine.sessionId})`));
+    const lastAssistant = [...engine.messages].reverse().find((m) => m.role === "assistant");
+    const text =
+        typeof lastAssistant?.content === "string"
+            ? lastAssistant.content
+            : (lastAssistant?.content as any[] | undefined)?.find((p) => p?.type === "text")?.text;
+    if (text) console.log(chalk.dim(`  Last reply: ${text.replace(/\s+/g, " ").slice(0, 160)}${text.length > 160 ? "…" : ""}`));
+}
+
 export async function runChat(opts: ChatOptions = {}): Promise<void> {
     const ui = new CliUI();
     const engine = new AgentEngine({
@@ -121,7 +155,24 @@ export async function runChat(opts: ChatOptions = {}): Promise<void> {
         permissionMode: opts.permissionMode,
         approver: new CliApprover(ui),
         ui,
+        persist: true,
     });
+    if (opts.continueLast || opts.resume) {
+        const data =
+            typeof opts.resume === "string"
+                ? engine.sessions.load(opts.resume)
+                : opts.resume
+                    ? await pickSession(engine)
+                    : engine.sessions.latest(engine.mode);
+        if (data) {
+            engine.loadSession(data);
+            if (opts.model) engine.setModel(opts.model);
+            if (opts.permissionMode) engine.setPermissionMode(opts.permissionMode);
+            printResumed(engine, data.title);
+        } else if (opts.resume !== true) {
+            console.log(chalk.yellow("No saved session found — starting a new one."));
+        }
+    }
     for (const h of chatHooks) await h.setup?.(engine, ui);
     printHeader(engine);
 

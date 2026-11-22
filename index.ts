@@ -23,12 +23,27 @@ program.command("chat")
     .argument("[prompt...]", "optional first message")
     .option("-m, --model <spec>", "model, e.g. gemini:gemini-3.5-flash-lite or openrouter:openrouter/auto")
     .option("--auto-edit", "write edits immediately (checkpointed, /undo to revert) instead of reviewing diffs")
-    .action(async (prompt: string[], opts: { model?: string; autoEdit?: boolean }) => {
+    .option("-c, --continue", "continue the most recent conversation in this directory")
+    .option("-r, --resume [sessionId]", "resume a saved conversation (pick from a list when no id is given)")
+    .action(async (prompt: string[], opts: { model?: string; autoEdit?: boolean; continue?: boolean; resume?: string | boolean }) => {
         await runAgentMode({
             model: opts.model,
             permissionMode: opts.autoEdit ? "auto-edit" : undefined,
             initialPrompt: prompt.join(" ") || undefined,
+            continueLast: opts.continue,
+            resume: opts.resume,
         });
+    });
+
+program.command("sessions")
+    .description("list saved conversations for this directory")
+    .action(async () => {
+        const { SessionStore } = await import("./core/session");
+        const list = new SessionStore(process.cwd()).list();
+        if (!list.length) return void console.log("No saved sessions for this directory.");
+        for (const s of list.slice(0, 30))
+            console.log(`${s.id}  ${s.updatedAt.replace("T", " ").slice(0, 16)}  [${s.mode}] ${s.turns} turn(s)  ${s.title}`);
+        console.log("\nResume with: rushclaw-build chat --resume <id>   (or --continue for the latest)");
     });
 
 program.command("undo")
@@ -55,8 +70,9 @@ program.command("ask")
     .description("read-only Q&A about the codebase")
     .argument("[question...]", "optional first question")
     .option("-m, --model <spec>", "model to use")
-    .action(async (question: string[], opts: { model?: string }) => {
-        await runAskMode({ model: opts.model, initialPrompt: question.join(" ") || undefined });
+    .option("-c, --continue", "continue the most recent Ask conversation")
+    .action(async (question: string[], opts: { model?: string; continue?: boolean }) => {
+        await runAskMode({ model: opts.model, initialPrompt: question.join(" ") || undefined, continueLast: opts.continue });
     });
 
 await program.parseAsync(process.argv);

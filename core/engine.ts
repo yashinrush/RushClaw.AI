@@ -12,6 +12,8 @@ import { PermissionGate, type Approver } from "./permissions";
 import { buildSystemPrompt, type PromptMode } from "./system-prompt";
 import { UsageTracker } from "./usage";
 import { createTodoTool, type Todo } from "./todos";
+import { compactedHistory, summarizeConversation } from "./compact";
+import { SessionStore, newSessionId, titleFrom, type SessionData } from "./session";
 import { createTaskTool } from "./subagent";
 import { CheckpointStore, type RestoreResult, type Checkpoint } from "./checkpoints";
 
@@ -44,6 +46,8 @@ export interface EngineOptions {
     mode?: Extract<PromptMode, "agent" | "ask">;
     approver?: Approver;
     ui?: EngineUI;
+    /** Save the conversation after every turn so it can be resumed. */
+    persist?: boolean;
 }
 
 export interface TurnResult {
@@ -81,6 +85,10 @@ export class AgentEngine {
     /** The agent's current checklist (todo_write). */
     todos: Todo[] = [];
     readonly checkpoints: CheckpointStore;
+    readonly sessions: SessionStore;
+    sessionId = newSessionId();
+    private createdAt = new Date().toISOString();
+    private readonly persist: boolean;
     /** Tools added by integrations (MCP, todo, sub-agents…). */
     extraTools: ToolSet = {};
 
@@ -105,6 +113,8 @@ export class AgentEngine {
         }
         this.executor = new ToolExecutor(this.tracker, agentConfig);
         this.checkpoints = new CheckpointStore(this.root);
+        this.sessions = new SessionStore(this.root);
+        this.persist = opts.persist ?? false;
         this.setPermissionMode(this.permissionMode);
     }
 
@@ -193,8 +203,75 @@ export class AgentEngine {
         return { role: "user", content: [{ type: "text", text: prefix }, ...input] } as ModelMessage;
     }
 
+    /**
+     * Replace the history with a summary of it. Runs automatically when the
+     * context grows past config.compactAtTokens, or on /compact.
+     */
+    async compact(focus?: string): Promise<{ summary: string; messagesBefore: number } | null> {
+        if (this.messages.length < 2) return null;
+        const messagesBefore = this.messages.length;
+        const { summary, usage, modelId } = await summarizeConversation(this.model(), this.messages, focus);
+        if (!summary) throw new Error("The model returned an empty summary; history was kept.");
+        this.usage.addStep(usage, modelId);
+        this.messages = compactedHistory(summary, this.todos);
+        this.usage.lastInputTokens = Math.round(summary.length / 4);
+        this.save();
+        return { summary, messagesBefore };
+    }
+
+    private async maybeAutoCompact(): Promise<void> {
+        const limit = this.config.compactAtTokens;
+        if (!limit || this.usage.lastInputTokens < limit || this.messages.length <= 2) return;
+        this.ui.info?.(`Context is ~${Math.round(this.usage.lastInputTokens / 1000)}k tokens — compacting the conversation…`);
+        try {
+            const r = await this.compact();
+            if (r) this.ui.info?.(`Compacted ${r.messagesBefore} messages into a summary.`);
+        } catch (e) {
+            this.ui.info?.(`Auto-compaction failed (${(e as Error).message}); continuing with full history.`);
+        }
+    }
+
+    toSession(): SessionData {
+        return {
+            version: 1,
+            id: this.sessionId,
+            root: this.root,
+            title: titleFrom(this.messages),
+            createdAt: this.createdAt,
+            updatedAt: new Date().toISOString(),
+            mode: this.mode,
+            model: this.modelSpec,
+            permissionMode: this.permissionMode,
+            messages: this.messages,
+            todos: this.todos,
+            usage: this.usage.toJSON(),
+        };
+    }
+
+    /** Persist the conversation (no-op unless created with persist: true). */
+    save(): void {
+        if (!this.persist || this.messages.length === 0) return;
+        try {
+            this.sessions.save(this.toSession());
+        } catch (e) {
+            this.ui.info?.(`Could not save session: ${(e as Error).message}`);
+        }
+    }
+
+    /** Continue a saved conversation. */
+    loadSession(data: SessionData): void {
+        this.sessionId = data.id;
+        this.createdAt = data.createdAt;
+        this.messages = data.messages ?? [];
+        this.todos = data.todos ?? [];
+        this.usage = UsageTracker.fromJSON(data.usage);
+        if (data.model) this.setModel(data.model);
+        if (data.permissionMode) this.setPermissionMode(data.permissionMode);
+    }
+
     /** Run one user turn: stream the model, execute tools, append to history. */
     async runTurn(input: string | UserContent, signal?: AbortSignal): Promise<TurnResult> {
+        await this.maybeAutoCompact();
         const tools = this.tools();
         const agent = new ToolLoopAgent({
             model: this.model(),
@@ -274,6 +351,7 @@ export class AgentEngine {
         } else {
             this.messages.push(userMsg, ...response);
         }
+        this.save();
         return { text, aborted, written };
     }
 
@@ -329,6 +407,8 @@ export class AgentEngine {
         this.messages = [];
         this.notes = [];
         this.todos = [];
+        this.sessionId = newSessionId();
+        this.createdAt = new Date().toISOString();
         this.executor.clearStaging();
         this.tracker.clear();
         this.usage = new UsageTracker();

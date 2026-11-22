@@ -204,6 +204,38 @@ registerSlash(
         },
     },
     {
+        name: "compact",
+        args: "[focus]",
+        description: "Summarize the conversation to free up context (optional focus)",
+        async run({ engine, args }) {
+            if (engine.messages.length < 2) return void console.log(chalk.dim("Nothing to compact yet."));
+            console.log(chalk.dim("Compacting conversation…"));
+            try {
+                const r = await engine.compact(args || undefined);
+                if (!r) return;
+                console.log(chalk.green(`✓ Compacted ${r.messagesBefore} messages into a summary.`));
+                console.log(chalk.dim(r.summary.split("\n").slice(0, 12).join("\n") + (r.summary.split("\n").length > 12 ? "\n…" : "")));
+            } catch (e) {
+                console.log(chalk.red(`Compaction failed: ${(e as Error).message}`));
+            }
+        },
+    },
+    {
+        name: "resume",
+        aliases: ["sessions"],
+        description: "Switch to a saved conversation from this project",
+        async run({ engine }) {
+            const { pickSession, printResumed } = await import("./chat");
+            if (engine.pending().length) return void console.log(chalk.yellow("Resolve the staged changes first."));
+            const data = await pickSession(engine);
+            if (!data) return;
+            engine.save();
+            engine.reset();
+            engine.loadSession(data);
+            printResumed(engine, data.title);
+        },
+    },
+    {
         name: "todos",
         description: "Show the agent's current todo checklist",
         agentOnly: true,
