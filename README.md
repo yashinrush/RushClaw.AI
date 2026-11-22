@@ -34,10 +34,20 @@ Every single codebase mutation (file creation, modification, or directory additi
 
 ## 🚀 Key Features
 
+> 📘 **Full feature guide — what every feature does and where its code lives: [FEATURES.md](./FEATURES.md)**
+
+- 💬 **Interactive Agent Chat** — Multi-turn conversation with streaming Markdown output, live tool activity, Ctrl+C to interrupt, and 20 slash commands (`/model`, `/undo`, `/compact`, `/commit`, `/review`, `/pr`, `/resume`, …).
+- ✂️ **Precise Editing & Verification** — `edit_file` exact-replacement edits, regex `grep`, and `run_command` that runs tests/type-checks and feeds the output back so the agent fixes its own mistakes.
+- ↩️ **Checkpoints & Undo** — Every applied change is snapshotted; `/undo` (or `rushclaw-build undo`) restores it. Choose `review` mode (approve diffs, even per hunk) or `auto-edit` mode.
+- 🧠 **Project Memory & Sessions** — `RUSHCLAW.md` loaded into every prompt (`/init` writes it), conversations saved and resumable (`--continue`, `--resume`), auto-compaction for long sessions.
+- 🧩 **Sub-agents, Todos, MCP, Hooks** — Delegate research to read-only sub-agents, visible task checklists, any MCP server's tools, and pre/post tool hooks (e.g. auto-format after edits).
+- 🛰️ **Headless Mode** — `rushclaw-build -p "task" --yes --output json` for scripts and CI.
+- 🖼️ **Image Input** — Reference screenshots with `@path/to/image.png`.
+- 🔁 **Model Fallback & Cost Tracking** — Automatic switch to a backup model on rate limits; per-turn token usage and `/cost`.
 - 🤖 **Autonomous Agent Mode** — Loops through multi-step reasoning, file inspection, directory tree analysis, and code synthesis.
 - 🧭 **Deep Plan Mode** — Researches your goal, analyzes current skills and dependencies, queries live web sources, drafts a 1–15 step plan, and lets you select which steps to execute.
 - ❓ **Interactive Ask Mode** — Deep read-only Q&A about code semantics, architecture, or tech stacks with optional Markdown report exporting.
-- 📱 **Telegram Bot Integration** — Run Agent, Plan, and Ask modes remotely via Telegram. Features inline buttons for step execution, diff previews, and change approvals.
+- 📱 **Telegram Bot Integration** — Run Agent, Plan, and Ask modes remotely via Telegram, with a live progress message, voice-note tasks, completion notifications, `/undo`, and inline buttons for step execution, diff previews, and change approvals.
 - 🛡️ **Zero Unapproved Mutations** — Full staging and approval workflow. Inspect visual diffs before applying any changes to your project.
 - 🌐 **Web Research & Scraping** — Native web search, URL fetching, and markdown scraping powered by **Firecrawl**.
 - 🎨 **Modern Terminal UI** — Retro shadow ANSI banners (via `figlet`), clean interactive prompts (`@clack/prompts`), and full terminal markdown rendering (`marked` + `marked-terminal`).
@@ -121,6 +131,24 @@ bun link
 rushclaw-build wakeup
 ```
 
+> 💡 When used inside another project, RushClaw also reads API keys from `~/.rushclaw/.env` and from its own install folder's `.env`.
+
+### 4. Common Commands
+
+```bash
+rushclaw-build chat                         # interactive agent chat (type /help)
+rushclaw-build chat --auto-edit             # write edits immediately, /undo to revert
+rushclaw-build chat --continue              # continue the last conversation
+rushclaw-build ask "how does auth work?"    # read-only Q&A
+rushclaw-build -p "fix the failing test" --yes          # headless, applies edits
+rushclaw-build -p "summarize src/" --output json        # headless, JSON output
+rushclaw-build undo                         # revert the last applied change
+rushclaw-build sessions                     # list saved conversations
+bun run test                                # run the test suite
+```
+
+Optional: copy [`rushclaw.config.example.json`](./rushclaw.config.example.json) to `rushclaw.config.json` to configure models, fallbacks, the command allowlist, hooks, MCP servers and more.
+
 ---
 
 ## 🕹️ Operating Modes
@@ -129,12 +157,12 @@ rushclaw-build wakeup
   <img src="./assets/rushclaw-menu-flow.png" alt="RushClaw CLI Sub-Mode Selector" width="720" />
 </p>
 
-### 1. 🤖 Agent Mode (`runAgentMode`)
-Designed for autonomous execution of complex features and fixes:
-- Inspects project structure (`analyze_codebase`, `list_files`, `search_files`, `read_file`).
-- Stages new files, updates, or deletions.
-- Previews color-coded git diffs (`+` additions in green, `-` deletions in red).
-- Prompts for confirmation: `Apply changes? [Yes / No]`.
+### 1. 🤖 Agent Mode (`runAgentMode` → interactive chat)
+Designed for autonomous execution of complex features and fixes, as a multi-turn conversation:
+- Explores the project (`grep`, `search_files`, `list_files`, `read_file`, `task` sub-agents).
+- Edits with exact replacements (`edit_file`), creates/deletes files, and runs checks with `run_command` (allowlisted commands run directly; others ask you first).
+- Streams its answer and shows each tool call live; keeps a todo checklist for multi-step work.
+- After each turn, previews color-coded diffs and lets you approve all, per file, or **per hunk** — or use `auto-edit` mode. Every apply is checkpointed for `/undo`.
 
 ### 2. 🧭 Plan Mode (`runPlanMode`)
 Designed for high-level architectural planning before writing code:
@@ -145,9 +173,9 @@ Designed for high-level architectural planning before writing code:
 
 ### 3. ❓ Ask Mode (`runAskMode`)
 Designed for codebase comprehension:
-- Read-only queries against your workspace files and skills.
-- Renders rich Markdown directly inside your terminal.
-- Offers a one-click option to save the discussion into a `.md` summary file.
+- Read-only queries against your workspace files and skills, with follow-up questions in the same conversation.
+- Renders rich Markdown directly inside your terminal, streamed as it is written.
+- `/save` exports the discussion into a `.md` file.
 
 ### 4. 📱 Telegram Mode (`runTelegramMode`)
 Full remote access through Telegram:
@@ -157,52 +185,67 @@ Full remote access through Telegram:
   - `/ask <question>` — Research codebase and stream answer.
   - `/agent <task>` — Run autonomous agent workflow.
   - `/plan <goal>` — Generate interactive plan with inline buttons.
+  - `/undo` — Revert the last applied change.
+  - 🎙 Voice notes — transcribed, then run as Ask, Agent or Plan.
 - Inline keyboards to view diffs (`approval_diff`), accept changes (`approval_accept`), or reject (`approval_reject`).
+- One live progress message per task, and a notification when long tasks finish.
+
+### 5. 🛰️ Headless Mode (`runHeadless`)
+For scripts and CI: `rushclaw-build -p "<task>" [--yes] [--output json] [--model …] [--continue] [--read-only] [--stdin]`. Without `--yes`, proposed changes are printed but never written.
 
 ---
 
 ## 📁 Project Architecture
 
+> A file-by-file map with what each module does is in [FEATURES.md → Architecture](./FEATURES.md#9-architecture).
+
 ```text
 RushClaw.AI/
 ├── ai/
-│   ├── ai.config.ts          # Unified AI engine: Google Gemini & OpenRouter provider
+│   ├── ai.config.ts          # Gemini & OpenRouter providers, model specs, rate-limit fallback
 │   └── index.ts              # Model exporter
+├── core/                     # Shared engine (used by chat, ask, plan, headless, Telegram)
+│   ├── engine.ts             # AgentEngine: history, streaming turns, apply/undo, sessions
+│   ├── config.ts             # rushclaw.config.json loading & defaults
+│   ├── system-prompt.ts      # Mode-specific system prompts
+│   ├── memory.ts             # RUSHCLAW.md project memory & /init
+│   ├── permissions.ts        # Permission gate & command allowlist
+│   ├── shell.ts              # Async command runner
+│   ├── checkpoints.ts        # File snapshots for /undo
+│   ├── session.ts            # Saved / resumable conversations
+│   ├── compact.ts            # Context compaction
+│   ├── todos.ts              # todo_write checklist tool
+│   ├── subagent.ts           # task tool (read-only sub-agents)
+│   ├── mcp.ts                # MCP client manager
+│   ├── hooks.ts              # pre/post tool & post-apply hooks
+│   ├── git.ts                # git helpers + AI commit/review/PR text
+│   ├── images.ts             # @image references
+│   ├── usage.ts              # Token & cost tracking
+│   ├── errors.ts             # Provider-aware error messages
+│   └── env.ts                # Extra .env loading
 ├── modes/
-│   ├── agent/                # Autonomous Agent Mode
+│   ├── agent/                # Agent chat
+│   │   ├── chat.ts           # Interactive REPL (multi-turn, streaming, review)
+│   │   ├── slash-commands.ts # Slash command registry & built-ins
+│   │   ├── git-commands.ts   # /diff /commit /review /pr
+│   │   ├── agent-tools.ts    # Tool definitions (read, grep, edit_file, run_command, …)
+│   │   ├── tool-executor.ts  # File ops, staging overlay, grep, apply
+│   │   ├── approval.ts       # Diff review incl. per-hunk picking
+│   │   ├── diff-view.ts      # Diffs, hunks, colors, stats
 │   │   ├── action-tracker.ts # In-memory change audit tracker
-│   │   ├── agent-tools.ts    # Agent tool definitions (read, write, delete, search, analyze)
-│   │   ├── approval.ts       # Human-in-the-loop diff approval prompt flow
-│   │   ├── diff-view.ts      # Colored terminal diff renderer
-│   │   ├── orchestrator.ts   # Agent loop & execution coordinator
-│   │   ├── tool-executor.ts  # Workspace file mutation & staging engine
-│   │   └── types.ts          # Agent configuration & tool schemas
-│   ├── ask/                  # Codebase Q&A Mode
-│   │   └── orchestrator.ts   # Ask loop, read-only tools, & .md persistence
-│   ├── plan/                 # Plan Mode
-│   │   ├── orchestrator.ts   # Plan workflow & step execution loop
-│   │   ├── planner.ts        # Structured plan generator with schema validation
-│   │   ├── selection.ts      # Interactive multiselect prompt UI
-│   │   ├── types.ts          # Plan & Step data interfaces
-│   │   └── web-tools.ts      # Firecrawl search, crawl, & URL fetch tools
-│   ├── telegram/             # Remote Telegram Bot Mode
-│   │   ├── agent-run.ts      # Telegram-adapted agent & planner loops
-│   │   ├── approval-session.ts# Pending approval session state
-│   │   ├── auth.ts           # Owner verification guard
-│   │   ├── constants.ts      # Help and banner texts
-│   │   ├── handlers.ts       # Telegraf command and action callbacks
-│   │   ├── index.ts          # Bot runner and graceful lifecycle shutdown
-│   │   ├── plan-session.ts   # Interactive plan state and inline keyboards
-│   │   └── text.ts           # Markdown text clipping & Telegram formatting
+│   │   ├── orchestrator.ts   # runAgentMode entry
+│   │   └── types.ts          # Agent configuration & action types
+│   ├── ask/orchestrator.ts   # Read-only chat
+│   ├── plan/                 # Planner, step selection, step execution, web tools
+│   ├── telegram/             # Bot: handlers, live progress, voice, approvals, plans
+│   ├── headless.ts           # rushclaw-build -p
 │   └── cli.ts                # Main sub-mode interactive selector
-├── tui/
-│   ├── terminal-md.ts        # Terminal markdown styling
-│   └── wakeup.ts             # ANSI shadow ASCII banner & launcher
-├── .env.example              # Environment variables template
+├── tui/                      # chat-ui, streaming markdown, spinner, tool lines, banner
+├── tests/                    # bun test suite (69 tests)
+├── rushclaw.config.example.json
+├── FEATURES.md               # Feature guide with code locations
 ├── index.ts                  # CLI entry point (Commander)
-├── package.json              # Bun dependencies & scripts
-├── tsconfig.json             # TypeScript configuration (Bundler mode)
-└── README.md                 # Project documentation
+└── package.json              # Bun dependencies & scripts
 ```
 
 ---
@@ -212,7 +255,12 @@ RushClaw.AI/
 RushClaw is built with a strict **non-destructive policy**:
 1. **Isolated Staging**: When an agent "creates" or "edits" a file, changes are written to an in-memory staging table, NOT directly to your workspace.
 2. **Unified Diff Inspection**: All modifications generate visual unified diffs showing exact line-by-line changes.
-3. **Explicit Consent**: You must approve staged actions. If you reject them, the staging cache is instantly cleared and your files remain untouched.
+3. **Explicit Consent**: You must approve staged actions — all at once, per file, or per hunk. If you reject them, the staging cache is instantly cleared and your files remain untouched.
+4. **Checkpoints**: Before anything is written, the original files are snapshotted; `/undo` restores them (and removes files the agent created).
+5. **Command Permissions**: Only allowlisted commands (tests, builds, read-only git…) run without asking; anything with shell operators or outside the list needs your approval.
+6. **Secrets & Workspace Jail**: `.env*` files are never readable by the agent, and paths outside the project are rejected.
+
+Prefer speed? `auto-edit` mode writes edits immediately while keeping every turn undoable.
 
 ---
 
@@ -224,6 +272,7 @@ RushClaw is built with a strict **non-destructive policy**:
   - `@ai-sdk/google` (Google Gemini 1.5/2.0/3.5/3.8 Flash & Pro)
   - `@openrouter/ai-sdk-provider` (OpenRouter API)
   - `ai` (Vercel AI SDK Core & ToolLoopAgent)
+  - `@ai-sdk/mcp` (Model Context Protocol client)
 - **Terminal UI**:
   - `@clack/prompts` (Modern interactive CLI inputs)
   - `chalk` (Terminal coloring)
