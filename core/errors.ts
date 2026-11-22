@@ -1,6 +1,7 @@
 import chalk from "chalk";
 import { defaultModelSpec, hasProviderKey, isRateLimitError, parseModelSpec } from "../ai/ai.config";
 import { loadConfig } from "./config";
+import { box, sym, t as theme, termWidth, wrap } from "../tui/theme";
 
 /**
  * Turn a provider error into a message that matches the provider actually in use
@@ -65,12 +66,15 @@ export function describeError(err: unknown, activeSpec?: string): { title: strin
 
 export function printError(err: unknown, activeSpec?: string, prefix = "Error"): void {
     const { title, tips } = describeError(err, activeSpec);
-    console.log(chalk.red(`\n❌ ${prefix}: ${title}`));
+    const inner = Math.min(termWidth() - 8, 96);
+    const lines = wrap(title, inner).map((l) => chalk.white(l));
     if (tips.length) {
-        console.log(chalk.yellow("👉 Suggestions:"));
-        tips.forEach((t, i) => console.log(chalk.dim(`   ${i + 1}. ${t}`)));
+        lines.push("", theme.warn("Try this:"));
+        tips.forEach((tip, i) => {
+            wrap(tip, inner - 4).forEach((l, j) => lines.push(theme.muted(`${j === 0 ? `${i + 1}.` : "  "}  ${l}`)));
+        });
     }
-    console.log();
+    console.log("\n" + box(lines, { title: theme.err.bold(`${sym.cross} ${prefix}`), border: theme.err }) + "\n");
 }
 
 /** Plain-text version for Telegram / JSON output. */

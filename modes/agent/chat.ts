@@ -5,6 +5,9 @@ import type { PermissionMode } from "../../core/config";
 import type { McpServerStatus } from "../../core/mcp";
 import { printError } from "../../core/errors";
 import { CliApprover, CliUI } from "../../tui/chat-ui";
+import { BRAND_GRADIENT, box, changeBar, gradient, padEndVisible, prettyPath, sym, t } from "../../tui/theme";
+import { fmtTokens } from "../../core/usage";
+import { VERSION } from "../../core/version";
 import { runApprovalFlow } from "./approval";
 import { changeStats, composeBeforeAfter } from "./diff-view";
 import { runSlash } from "./slash-commands";
@@ -47,43 +50,74 @@ registerChatHooks({
     prepareInput(engine, input) {
         const { text, images, problems } = extractImageRefs(input, engine.root);
         for (const img of images)
-            console.log(chalk.dim(`📎 Attached ${img.name} (${Math.round(img.bytes / 1024)} KB)`));
-        for (const p of problems) console.log(chalk.yellow(`⚠️  Couldn't attach ${p}`));
+            console.log(`  ${t.info("📎")} ${t.muted(`Attached ${img.name} (${Math.round(img.bytes / 1024)} KB)`)}`);
+        for (const p of problems) console.log(t.warn(`  ${sym.warn} Couldn't attach ${p}`));
         return buildUserContent(text, images);
     },
 });
 
 function printHeader(engine: AgentEngine) {
     const mem = engine.memory.sources;
-    const title = engine.mode === "ask" ? "Ask mode (read-only)" : "Agent chat";
+    const isAsk = engine.mode === "ask";
+    const row = (k: string, v: string) => `${t.muted(k.padEnd(7))} ${v}`;
+    const lines = [
+        `${gradient(sym.star, BRAND_GRADIENT)} ${t.bold(isAsk ? "Ask anything about this codebase." : "What should we build today?")}`,
+        "",
+        row("model", t.brand(engine.modelSpec)),
+        ...(isAsk
+            ? [row("mode", `${t.read("read-only")} ${t.dim("· no edits, no commands")}`)]
+            : [
+                row(
+                    "mode",
+                    engine.permissionMode === "auto-edit"
+                        ? `${t.warn("auto-edit")} ${t.dim("· edits written immediately, /undo reverts")}`
+                        : `${t.ok("review")} ${t.dim("· you approve every diff · /mode to switch")}`,
+                ),
+            ]),
+        row("folder", prettyPath(engine.root, 48)),
+        row(
+            "memory",
+            mem.length
+                ? mem.map((m) => m.path.split(/[\\/]/).pop()).join(", ")
+                : t.dim(isAsk ? "none" : "none — /init creates RUSHCLAW.md"),
+        ),
+    ];
+    const title = gradient(`RushClaw ${isAsk ? "Ask" : "Agent"}`, BRAND_GRADIENT, true) + t.dim(` v${VERSION}`);
+    console.log("\n" + box(lines, { title, border: t.shadow, padding: 2 }));
     console.log(
-        [
-            "",
-            `${chalk.magenta("╭")} ${chalk.bold(`RushClaw · ${title}`)}`,
-            `${chalk.magenta("│")} model  ${chalk.cyan(engine.modelSpec)}${engine.mode === "agent" ? `   mode ${chalk.cyan(engine.permissionMode)}` : ""}`,
-            `${chalk.magenta("│")} cwd    ${engine.root}`,
-            `${chalk.magenta("│")} memory ${mem.length ? mem.map((s) => s.path.split(/[\\/]/).pop()).join(", ") : chalk.dim(engine.mode === "agent" ? "none — run /init to create RUSHCLAW.md" : "none")}`,
-            `${chalk.magenta("╰")} ${chalk.dim("/help for commands · Ctrl+C interrupts a turn · /exit to leave")}`,
-            "",
-        ].join("\n"),
+        t.dim(`  ${["/help commands", "@file.png attach image", "\\ new line", "ctrl+c interrupt", "/exit leave"].join("  ·  ")}`) + "\n",
     );
+}
+
+const AGENT_TIPS = [
+    "Describe a task, e.g. \"add input validation to the signup form\"",
+    "Try: \"find and fix the failing test\"",
+    "Attach a screenshot with @path/to/image.png",
+    "Type /help to see all commands",
+    "Try: \"explain how this project is structured\"",
+    "Use /review before you commit",
+];
+const ASK_TIPS = [
+    "Ask about the code, e.g. \"where is auth handled?\"",
+    "Try: \"explain the data flow of a request\"",
+    "Type /save to export this conversation",
+];
+
+function placeholderTip(engine: AgentEngine): string {
+    const tips = engine.mode === "ask" ? ASK_TIPS : AGENT_TIPS;
+    return tips[Math.floor(Math.random() * tips.length)]!;
 }
 
 /** Read one (possibly multi-line, via trailing "\") message from the user. */
 async function readInput(engine: AgentEngine): Promise<string | null> {
     const lines: string[] = [];
     while (true) {
-        const t = await text({
-            message: lines.length ? chalk.dim("…") : chalk.bold("You"),
-            placeholder:
-                lines.length === 0
-                    ? engine.mode === "ask"
-                        ? "Ask about the codebase (or /help)"
-                        : "Describe a task or ask a question (/help for commands)"
-                    : undefined,
+        const answer = await text({
+            message: lines.length ? t.dim("…") : t.brand.bold("You"),
+            placeholder: lines.length === 0 ? placeholderTip(engine) : undefined,
         });
-        if (isCancel(t)) return null;
-        const line = String(t ?? "");
+        if (isCancel(answer)) return null;
+        const line = String(answer ?? "");
         if (line.endsWith("\\")) {
             lines.push(line.slice(0, -1));
             continue;
@@ -94,31 +128,43 @@ async function readInput(engine: AgentEngine): Promise<string | null> {
 }
 
 /** Show staged changes and let the user approve / reject them (review mode). */
-export async function reviewStagedChanges(engine: AgentEngine): Promise<void> {
+export async function reviewStagedChanges(engine: AgentEngine): Promise<number> {
     const pending = engine.pending();
-    if (pending.length === 0) return;
+    if (pending.length === 0) return 0;
 
-    console.log(chalk.bold("\n📝 Staged changes"));
     const byPath = new Map<string, typeof pending>();
     for (const a of pending) {
         const key = a.type === "tool_execute" ? `$ ${a.details.command}` : a.path;
         if (!byPath.has(key)) byPath.set(key, []);
         byPath.get(key)!.push(a);
     }
+    const rows: Array<{ badge: string; path: string; added: number; removed: number; cmd?: boolean }> = [];
     for (const [p, acts] of byPath) {
         if (acts[0]!.type === "tool_execute") {
-            console.log(`  ${chalk.yellow("cmd")}  ${p}`);
+            rows.push({ badge: t.run("cmd "), path: p, added: 0, removed: 0, cmd: true });
             continue;
         }
         if (acts.every((a) => a.type === "folder_create")) {
-            console.log(`  ${chalk.cyan("dir")}  ${p}/`);
+            rows.push({ badge: t.info("dir "), path: p + "/", added: 0, removed: 0 });
             continue;
         }
         const sorted = [...acts].sort((x, y) => x.timestamp.getTime() - y.timestamp.getTime());
         const { before, after } = composeBeforeAfter(sorted);
         const { added, removed } = changeStats(before, after);
-        const kind = sorted.some((a) => a.type === "file_delete") ? chalk.red("del ") : sorted[0]!.type === "file_create" ? chalk.green("new ") : chalk.blue("edit");
-        console.log(`  ${kind} ${p} ${chalk.green(`+${added}`)} ${chalk.red(`-${removed}`)}`);
+        const badge = sorted.some((a) => a.type === "file_delete")
+            ? t.err("del ")
+            : sorted[0]!.type === "file_create"
+                ? t.ok("new ")
+                : t.edit("edit");
+        rows.push({ badge, path: p, added, removed });
+    }
+    const files = rows.filter((r) => !r.cmd).length;
+    const maxTotal = Math.max(...rows.map((r) => r.added + r.removed), 1);
+    const pathW = Math.min(48, Math.max(...rows.map((r) => r.path.length)));
+    console.log(`\n${t.edit(sym.dot)} ${t.bold("Staged changes")} ${t.muted(`· ${files} file(s)${rows.length > files ? ` · ${rows.length - files} command(s)` : ""}`)}`);
+    for (const r of rows) {
+        const counts = r.cmd ? "" : `${t.ok(`+${r.added}`.padStart(5))} ${t.err(`-${r.removed}`.padEnd(5))} ${changeBar(r.added, r.removed, maxTotal)}`;
+        console.log(`  ${r.badge}  ${padEndVisible(r.path.length > pathW ? "…" + r.path.slice(-(pathW - 1)) : r.path, pathW)}  ${counts}`);
     }
     console.log();
 
@@ -126,16 +172,17 @@ export async function reviewStagedChanges(engine: AgentEngine): Promise<void> {
     const res = engine.applyApproved();
     await engine.runPostApplyHooks(res.applied);
     if (res.applied.length)
-        console.log(chalk.green(`✓ Applied ${res.applied.length} file change(s).`) + chalk.dim("  (/undo to revert)"));
-    if (res.rejected.length) console.log(chalk.dim(`✗ Rejected: ${res.rejected.join(", ")}`));
-    for (const out of res.shellOutputs) console.log(chalk.dim(out));
-    for (const e of res.errors) console.log(chalk.red(`  • ${e}`));
+        console.log(t.ok(`${sym.check} Applied ${res.applied.length} file change(s).`) + t.dim("  /undo to revert"));
+    if (res.rejected.length) console.log(t.muted(`${sym.cross} Rejected: ${res.rejected.join(", ")}`));
+    for (const out of res.shellOutputs) console.log(t.dim(out));
+    for (const e of res.errors) console.log(t.err(`  ${sym.bullet} ${e}`));
+    return res.applied.length;
 }
 
 export function printMcpStatus(status: McpServerStatus[]) {
     for (const s of status) {
-        if (s.ok) console.log(`${chalk.green("🔌")} MCP ${chalk.bold(s.name)} ${chalk.dim(`· ${s.tools.length} tool(s)`)}`);
-        else console.log(`${chalk.red("🔌")} MCP ${chalk.bold(s.name)} ${chalk.red(`failed: ${s.error}`)}`);
+        if (s.ok) console.log(`  ${t.mcp(sym.filled)} ${t.muted("MCP")} ${t.bold(s.name)} ${t.dim(`· ${s.tools.length} tool(s)`)}`);
+        else console.log(`  ${t.err(sym.hollow)} ${t.muted("MCP")} ${t.bold(s.name)} ${t.err(`failed: ${s.error}`)}`);
     }
     if (status.length) console.log();
 }
@@ -161,13 +208,13 @@ export async function pickSession(engine: AgentEngine) {
 
 export function printResumed(engine: AgentEngine, title: string) {
     const turns = engine.messages.filter((m) => m.role === "user").length;
-    console.log(chalk.green(`↺ Resumed "${title}" (${turns} turn(s), session ${engine.sessionId})`));
+    console.log(`${t.ok("↺")} ${t.bold("Resumed")} ${t.brand(`"${title}"`)} ${t.dim(`· ${turns} turn(s) · session ${engine.sessionId}`)}`);
     const lastAssistant = [...engine.messages].reverse().find((m) => m.role === "assistant");
     const text =
         typeof lastAssistant?.content === "string"
             ? lastAssistant.content
             : (lastAssistant?.content as any[] | undefined)?.find((p) => p?.type === "text")?.text;
-    if (text) console.log(chalk.dim(`  Last reply: ${text.replace(/\s+/g, " ").slice(0, 160)}${text.length > 160 ? "…" : ""}`));
+    if (text) console.log(t.dim(`  ${sym.branch}  last reply: ${text.replace(/\s+/g, " ").slice(0, 160)}${text.length > 160 ? "…" : ""}`));
 }
 
 export async function runChat(opts: ChatOptions = {}): Promise<void> {
@@ -193,7 +240,7 @@ export async function runChat(opts: ChatOptions = {}): Promise<void> {
             if (opts.permissionMode) engine.setPermissionMode(opts.permissionMode);
             printResumed(engine, data.title);
         } else if (opts.resume !== true) {
-            console.log(chalk.yellow("No saved session found — starting a new one."));
+            console.log(t.warn(`${sym.warn} No saved session found — starting a new one.`));
         }
     }
     for (const h of chatHooks) await h.setup?.(engine, ui);
@@ -204,6 +251,8 @@ export async function runChat(opts: ChatOptions = {}): Promise<void> {
         ui.activity.stop();
         printMcpStatus(status);
     }
+
+    const stats = { turns: 0, files: 0, startedAt: Date.now() };
 
     const runPrompt = async (prompt: string) => {
         let content: string | UserContent = prompt;
@@ -218,15 +267,19 @@ export async function runChat(opts: ChatOptions = {}): Promise<void> {
         };
         process.on("SIGINT", onSigint);
         ui.turnStart();
+        stats.turns++;
+        let interrupted = false;
         try {
             const r = await engine.runTurn(content, ac.signal);
             ui.turnEnd();
-            if (r.aborted) console.log(chalk.yellow("⏹  Interrupted."));
-            if (r.written.length)
+            interrupted = r.aborted;
+            if (r.written.length) {
+                stats.files += r.written.length;
                 console.log(
-                    chalk.green(`\n✓ Wrote ${r.written.length} file(s): ${r.written.join(", ")}`) +
-                    chalk.dim("  (/undo to revert this turn)"),
+                    t.ok(`${sym.check} Wrote ${r.written.length} file(s): ${r.written.join(", ")}`) +
+                    t.dim("  /undo reverts this turn"),
                 );
+            }
         } catch (err) {
             ui.turnEnd();
             printError(err, engine.modelSpec);
@@ -234,9 +287,9 @@ export async function runChat(opts: ChatOptions = {}): Promise<void> {
             process.off("SIGINT", onSigint);
         }
 
-        if (engine.mode === "agent") await reviewStagedChanges(engine);
+        if (engine.mode === "agent") stats.files += await reviewStagedChanges(engine);
         for (const h of chatHooks) await h.afterTurn?.(engine, ui);
-        console.log(chalk.dim(`  ↳ ${engine.usage.formatTurn()}`));
+        ui.footer(engine.usage, { interrupted });
     };
 
     const handle = async (line: string): Promise<"exit" | void> => {
@@ -257,6 +310,23 @@ export async function runChat(opts: ChatOptions = {}): Promise<void> {
         if (engine.pending().length) engine.rejectAll();
         for (const h of chatHooks) await h.teardown?.(engine);
         await engine.close();
-        console.log(chalk.dim("\nLeft the chat.\n"));
+        printGoodbye(engine, stats);
     }
+}
+
+/** Session summary shown when the chat ends. */
+function printGoodbye(engine: AgentEngine, stats: { turns: number; files: number; startedAt: number }) {
+    console.log();
+    if (stats.turns === 0) {
+        console.log(t.dim("  Left the chat.\n"));
+        return;
+    }
+    const mins = Math.max(1, Math.round((Date.now() - stats.startedAt) / 60000));
+    const u = engine.usage.total;
+    console.log(
+        `  ${gradient(sym.star, BRAND_GRADIENT)} ${t.bold("Left the chat")} ${t.dim("·")} ${t.muted(
+            `${stats.turns} turn(s) · ${stats.files} file change(s) · ${fmtTokens(u.input + u.output)} tokens · ~${mins} min`,
+        )}`,
+    );
+    console.log(t.dim(`    resume with: rushclaw-build chat --resume ${engine.sessionId}\n`));
 }

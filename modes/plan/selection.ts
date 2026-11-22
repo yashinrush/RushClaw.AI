@@ -1,34 +1,34 @@
 import { multiselect, isCancel } from '@clack/prompts';
-import chalk from 'chalk';
 import type { Plan, PlanStep } from './types.ts';
 import { renderTerminalMarkdown } from '../../tui/terminal-md.ts';
+import { BRAND_GRADIENT, box, gradient, sym, t, termWidth, wrap } from '../../tui/theme.ts';
 
-
-const COMPLEXITY_COLOR: Record<NonNullable<PlanStep['complexity']>, string> = {
-    low: chalk.green('low'),
-    medium: chalk.yellow('medium'),
-    high: chalk.red('high'),
+const COMPLEXITY: Record<NonNullable<PlanStep['complexity']>, string> = {
+    low: t.ok('● low'),
+    medium: t.warn('● medium'),
+    high: t.err('● high'),
 };
-
 
 export function printPlan(plan: Plan): void {
     if (plan.researchSummary?.trim()) {
-        console.log(chalk.bold('\n🔍 Research summary'));
+        console.log(`\n${t.info(sym.dot)} ${t.bold('Research summary')}`);
         console.log(renderTerminalMarkdown(plan.researchSummary));
     }
-    console.log(chalk.bold('\n📋 Generated Plan\n'));
+    const inner = Math.min(termWidth() - 10, 90);
+    const lines: string[] = [t.muted(wrap(plan.goal, inner).join(' ')), ''];
     for (const [i, s] of plan.steps.entries()) {
-        const tag = s.complexity ? `[${COMPLEXITY_COLOR[s.complexity]}]` : '';
-        console.log(`  ${chalk.cyan(`Step ${String(i + 1).padStart(2)}`)}. ${chalk.bold(s.title)} ${tag}`);
+        const num = t.brand(String(i + 1).padStart(2) + '.');
+        const tag = s.complexity ? `  ${COMPLEXITY[s.complexity]}` : '';
+        lines.push(`${num} ${t.bold(s.title)}${tag}`);
+        for (const l of wrap(s.description, inner - 4).slice(0, 2)) lines.push(`    ${t.dim(l)}`);
     }
-    console.log();
+    console.log('\n' + box(lines, { title: gradient(`Plan · ${plan.steps.length} steps`, BRAND_GRADIENT, true), padding: 2 }) + '\n');
 }
 
-
 export async function selectSteps(plan: Plan): Promise<PlanStep[]> {
-    const options = plan.steps.map((s) => ({
+    const options = plan.steps.map((s, i) => ({
         value: s.id,
-        label: s.title,
+        label: `${i + 1}. ${s.title}`,
         hint: s.complexity ?? '',
     }));
 

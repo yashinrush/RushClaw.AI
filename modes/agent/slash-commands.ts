@@ -8,6 +8,7 @@ import { INIT_PROMPT, MEMORY_FILE } from "../../core/memory";
 import { defaultModelSpec, formatModelSpec, hasProviderKey, parseModelSpec } from "../../ai/ai.config";
 import { renderTerminalMarkdown } from "../../tui/terminal-md";
 import { formatTodos } from "../../core/todos";
+import { BRAND_GRADIENT, gradient, sym, t } from "../../tui/theme";
 
 export interface SlashContext {
     engine: AgentEngine;
@@ -31,6 +32,15 @@ export interface SlashCommand {
 }
 
 const registry: SlashCommand[] = [];
+
+/** How /help groups the commands (anything not listed goes under "Other"). */
+const HELP_GROUPS: Record<string, string[]> = {
+    Conversation: ["clear", "resume", "compact", "save", "exit"],
+    "Model & mode": ["model", "mode", "cost", "config"],
+    Project: ["init", "memory", "todos", "undo", "mcp", "hooks"],
+    Git: ["diff", "commit", "review", "pr"],
+    Help: ["help"],
+};
 
 export function registerSlash(...cmds: SlashCommand[]): void {
     for (const c of cmds) {
@@ -69,16 +79,27 @@ registerSlash(
         aliases: ["?"],
         description: "Show available commands",
         async run({ engine }) {
-            const rows = allSlash()
-                .filter((c) => !(c.agentOnly && engine.mode === "ask"))
-                .map((c) => {
+            const visible = allSlash().filter((c) => !(c.agentOnly && engine.mode === "ask"));
+            const placed = new Set<string>();
+            const out: string[] = [];
+            const groups = [...Object.entries(HELP_GROUPS), ["Other", visible.map((c) => c.name)] as const];
+            for (const [group, names] of groups) {
+                const cmds = names
+                    .map((n) => visible.find((c) => c.name === n))
+                    .filter((c): c is SlashCommand => !!c && !placed.has(c.name));
+                if (!cmds.length) continue;
+                out.push(`  ${gradient(group, BRAND_GRADIENT, true)}`);
+                for (const c of cmds) {
+                    placed.add(c.name);
                     const name = `/${c.name}${c.args ? " " + c.args : ""}`;
-                    return `  ${chalk.cyan(name.padEnd(24))} ${c.description}`;
-                });
-            console.log(`\n${chalk.bold("Commands")}\n${rows.join("\n")}`);
+                    out.push(`    ${t.brand(name.padEnd(26))} ${t.muted(c.description)}`);
+                }
+                out.push("");
+            }
+            console.log("\n" + out.join("\n"));
             console.log(
-                chalk.dim(
-                    "\n  Tips: Ctrl+C interrupts a running turn · reference images with @path/to/image.png · end a line with \\ for multi-line input\n",
+                t.dim(
+                    `  Tips: ctrl+c interrupts a running turn · attach images with @path/to/image.png · end a line with \\ for multi-line input\n`,
                 ),
             );
         },
@@ -309,10 +330,11 @@ registerSlash(
                 return;
             }
             const cp = all[0];
-            if (!cp) return void console.log(chalk.dim("Nothing to undo."));
-            console.log(chalk.bold(`\nUndo "${cp.label}"?`));
+            if (!cp) return void console.log(t.dim("Nothing to undo."));
+            const when = cp.createdAt.replace("T", " ").slice(0, 16);
+            console.log(`\n${t.warn("↺")} ${t.bold("Undo")} ${t.brand(`"${cp.label}"`)} ${t.dim(`· ${when}`)}`);
             for (const f of cp.files)
-                console.log(`  ${f.existed ? chalk.blue("restore") : chalk.red("delete ")} ${f.path}`);
+                console.log(`    ${f.existed ? t.info("restore") : t.err("delete ")}  ${f.path}`);
             const ok = await confirm({
                 message: "Restore these files? (any edits you made to them since will be lost)",
                 initialValue: true,
@@ -320,8 +342,8 @@ registerSlash(
             if (isCancel(ok) || !ok) return;
             const res = engine.undo();
             if (!res) return;
-            console.log(chalk.green(`✓ Restored ${res.restored.length}, removed ${res.removed.length} file(s).`));
-            for (const e of res.errors) console.log(chalk.red(`  • ${e}`));
+            console.log(t.ok(`${sym.check} Restored ${res.restored.length}, removed ${res.removed.length} file(s).`));
+            for (const e of res.errors) console.log(t.err(`  ${sym.bullet} ${e}`));
         },
     },
     {
