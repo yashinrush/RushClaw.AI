@@ -11,6 +11,7 @@ import { loadMemory, type LoadedMemory } from "./memory";
 import { PermissionGate, type Approver } from "./permissions";
 import { buildSystemPrompt, type PromptMode } from "./system-prompt";
 import { UsageTracker } from "./usage";
+import { CheckpointStore, type RestoreResult, type Checkpoint } from "./checkpoints";
 
 export type UserContent = Extract<ModelMessage, { role: "user" }>["content"];
 
@@ -43,6 +44,8 @@ export interface TurnResult {
     /** All assistant text produced in the turn. */
     text: string;
     aborted: boolean;
+    /** Files written to disk during the turn (auto-edit mode). */
+    written: string[];
 }
 
 export interface ApplyResult {
@@ -69,6 +72,7 @@ export class AgentEngine {
     readonly mode: "agent" | "ask";
     ui: EngineUI;
     messages: ModelMessage[] = [];
+    readonly checkpoints: CheckpointStore;
     /** Tools added by integrations (MCP, todo, sub-agents…). */
     extraTools: ToolSet = {};
 
@@ -92,6 +96,28 @@ export class AgentEngine {
             agentConfig.tools.allowShellExecution = false;
         }
         this.executor = new ToolExecutor(this.tracker, agentConfig);
+        this.checkpoints = new CheckpointStore(this.root);
+        this.setPermissionMode(this.permissionMode);
+    }
+
+    /** review = stage + approve diffs; auto-edit = write immediately, checkpoint per turn. */
+    setPermissionMode(mode: PermissionMode): void {
+        this.permissionMode = mode;
+        this.executor.autoApply = this.mode === "agent" && mode === "auto-edit";
+    }
+
+    /** Restore the files changed by the most recent applied turn. */
+    undo(): (RestoreResult & { checkpoint: Checkpoint }) | null {
+        const res = this.checkpoints.undoLast();
+        if (res && (res.restored.length || res.removed.length)) {
+            const parts = [];
+            if (res.restored.length) parts.push(`restored ${res.restored.join(", ")}`);
+            if (res.removed.length) parts.push(`deleted the created file(s) ${res.removed.join(", ")}`);
+            this.addNote(
+                `The user ran /undo on your change "${res.checkpoint.label}": ${parts.join("; ")}. Those files are back to their previous content — re-read them before editing.`,
+            );
+        }
+        return res;
     }
 
     get hasWeb(): boolean {
@@ -169,6 +195,10 @@ export class AgentEngine {
 
         const userMsg = this.buildUserMessage(input);
         this.usage.startTurn();
+        if (this.executor.autoApply) {
+            const label = typeof input === "string" ? input : "turn";
+            this.executor.checkpoint = this.checkpoints.begin(label.replace(/\s+/g, " ").slice(0, 80));
+        }
         const ui = this.ui;
         const pendingInputs = new Map<string, unknown>();
         let text = "";
@@ -215,7 +245,10 @@ export class AgentEngine {
             else throw err;
         } finally {
             ui.textDone?.();
+            this.executor.checkpoint?.save();
+            this.executor.checkpoint = null;
         }
+        const written = this.executor.takeAutoApplied();
 
         let response: ModelMessage[] = [];
         try {
@@ -231,7 +264,7 @@ export class AgentEngine {
         } else {
             this.messages.push(userMsg, ...response);
         }
-        return { text, aborted };
+        return { text, aborted, written };
     }
 
     pending(): ActionLog[] {
@@ -251,7 +284,16 @@ export class AgentEngine {
         const rejected = [
             ...new Set(all.filter((a) => a.status === "rejected").map((a) => a.details.command ?? a.path)),
         ];
-        const { errors, applied, shellOutputs } = this.executor.applyApprovedFromTracker();
+        const changed = all.filter((a) => a.status === "approved" && a.type !== "tool_execute").map((a) => a.path);
+        this.executor.checkpoint = this.checkpoints.begin(`apply: ${[...new Set(changed)].slice(0, 4).join(", ")}`);
+        let result: ReturnType<ToolExecutor["applyApprovedFromTracker"]>;
+        try {
+            result = this.executor.applyApprovedFromTracker();
+        } finally {
+            this.executor.checkpoint.save();
+            this.executor.checkpoint = null;
+        }
+        const { errors, applied, shellOutputs } = result;
 
         if (applied.length)
             this.addNote(`The user approved your changes; they are now on disk: ${applied.join(", ")}.`);

@@ -4,6 +4,9 @@ import path from "node:path";
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 
+// Keep sessions / checkpoints written by tests out of the real ~/.rushclaw.
+process.env.RUSHCLAW_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "rushclaw-home-"));
+
 /** Temporary workspace with the given files. */
 export function tempWorkspace(files: Record<string, string> = {}): string {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rushclaw-test-"));

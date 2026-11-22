@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import type { AgentConfig, ActionLog } from "./types";
 import { ActionTracker } from "./action-tracker";
+import type { CheckpointBuilder } from "../../core/checkpoints";
 
 const TEXT_EXT = new Set([
     ".ts",
@@ -82,6 +83,13 @@ export function globToRegExp(glob: string): RegExp {
 export class ToolExecutor {
     private overlay = new Map<string, string>();
     private deleted = new Set<string>();
+
+    /** auto-edit mode: write every change to disk as soon as it is made. */
+    autoApply = false;
+    /** Receives a snapshot of each file before it is written (for /undo). */
+    checkpoint: CheckpointBuilder | null = null;
+    /** Files written by auto-apply since the last takeAutoApplied(). */
+    private autoApplied = new Set<string>();
 
     constructor(
         private readonly tracker: ActionTracker,
@@ -215,12 +223,12 @@ export class ToolExecutor {
         }
         this.deleted.delete(key);
         this.overlay.set(key, content);
-        this.tracker.log({
+        this.afterStage(this.tracker.log({
             type: "file_create",
             path: key,
             details: { after: content },
             status: "pending",
-        });
+        }));
         return `Staged new file: ${key}`;
     }
 
@@ -233,12 +241,12 @@ export class ToolExecutor {
             throw new Error(`modify_file: file not found: ${rel}`);
         const key = this.keyOf(rel);
         this.overlay.set(key, content);
-        this.tracker.log({
+        this.afterStage(this.tracker.log({
             type: "file_modify",
             path: key,
             details: { before, after: content },
             status: "pending",
-        });
+        }));
         return `Staged update: ${key}`;
     }
 
@@ -298,12 +306,12 @@ export class ToolExecutor {
 
         const key = this.keyOf(rel);
         this.overlay.set(key, after);
-        this.tracker.log({
+        this.afterStage(this.tracker.log({
             type: "file_modify",
             path: key,
             details: { before, after, toolName: "edit_file" },
             status: "pending",
-        });
+        }));
         return `Edited ${key}: replaced ${replaceAll ? count : 1} occurrence(s) starting at line ${line}.`;
     }
 
@@ -317,12 +325,12 @@ export class ToolExecutor {
         const key = this.keyOf(rel);
         this.overlay.delete(key);
         this.deleted.add(key);
-        this.tracker.log({
+        this.afterStage(this.tracker.log({
             type: "file_delete",
             path: key,
             details: { before },
             status: "pending",
-        });
+        }));
         return `Staged delete: ${key}`;
     }
 
@@ -331,12 +339,12 @@ export class ToolExecutor {
             throw new Error("Folder creation disabled");
         this.assertNotExcluded(rel, "create_folder");
         const key = this.keyOf(rel);
-        this.tracker.log({
+        this.afterStage(this.tracker.log({
             type: "folder_create",
             path: key,
             details: { after: key },
             status: "pending",
-        });
+        }));
         return `Staged folder: ${key}`;
     }
 
@@ -644,6 +652,42 @@ export class ToolExecutor {
         return text;
     }
 
+    /** In auto-edit mode, write a freshly staged action straight to disk. */
+    private afterStage(action: ActionLog): void {
+        if (!this.autoApply) return;
+        const key = action.path;
+        if (action.type === "folder_create") {
+            fs.mkdirSync(this.resolveSafe(key), { recursive: true });
+        } else if (action.type === "file_delete") {
+            this.removeOnDisk(key);
+        } else {
+            this.writeOnDisk(key, action.details.after ?? "");
+        }
+        this.tracker.updateStatus(action.id, "executed", true);
+        this.overlay.delete(key);
+        this.deleted.delete(key);
+        if (action.type !== "folder_create") this.autoApplied.add(key);
+    }
+
+    /** Paths written by auto-edit since the last call. */
+    takeAutoApplied(): string[] {
+        const out = [...this.autoApplied].sort();
+        this.autoApplied.clear();
+        return out;
+    }
+
+    private writeOnDisk(key: string, content: string): void {
+        const target = this.resolveSafe(key);
+        this.checkpoint?.record(key);
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.writeFileSync(target, content, "utf8");
+    }
+
+    private removeOnDisk(key: string): void {
+        this.checkpoint?.record(key);
+        fs.rmSync(this.resolveSafe(key), { force: true });
+    }
+
     applyApprovedFromTracker(): { errors: string[]; applied: string[]; shellOutputs: string[] } {
         const errors: string[] = [];
         const applied: string[] = [];
@@ -675,13 +719,8 @@ export class ToolExecutor {
 
         for (const [p, a] of lastByPath) {
             try {
-                if (a.type === "file_delete")
-                    fs.rmSync(this.resolveSafe(p), { force: true });
-                else {
-                    const target = this.resolveSafe(p);
-                    fs.mkdirSync(path.dirname(target), { recursive: true });
-                    fs.writeFileSync(target, a.details.after ?? "", "utf8");
-                }
+                if (a.type === "file_delete") this.removeOnDisk(p);
+                else this.writeOnDisk(p, a.details.after ?? "");
                 applied.push(p);
             } catch (e) {
                 errors.push(String(e));

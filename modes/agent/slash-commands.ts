@@ -3,7 +3,7 @@ import path from "node:path";
 import chalk from "chalk";
 import { confirm, isCancel, select, text } from "@clack/prompts";
 import type { AgentEngine } from "../../core/engine";
-import { configPaths, PROJECT_CONFIG_FILE } from "../../core/config";
+import { configPaths, PROJECT_CONFIG_FILE, type PermissionMode } from "../../core/config";
 import { INIT_PROMPT, MEMORY_FILE } from "../../core/memory";
 import { defaultModelSpec, formatModelSpec, hasProviderKey, parseModelSpec } from "../../ai/ai.config";
 import { renderTerminalMarkdown } from "../../tui/terminal-md";
@@ -200,6 +200,63 @@ registerSlash(
                     chalk.dim(`\n  See rushclaw.config.example.json for every option (copy it to ${PROJECT_CONFIG_FILE}).\n`),
                 ].join("\n"),
             );
+        },
+    },
+    {
+        name: "undo",
+        args: "[list]",
+        description: "Revert the files changed by the last applied turn (\"list\" shows checkpoints)",
+        agentOnly: true,
+        async run({ engine, args }) {
+            const all = engine.checkpoints.list();
+            if (args === "list") {
+                if (!all.length) return void console.log(chalk.dim("No checkpoints yet."));
+                console.log(chalk.bold("\nCheckpoints (newest first)"));
+                for (const cp of all.slice(0, 15))
+                    console.log(`  ${chalk.dim(cp.createdAt.replace("T", " ").slice(0, 19))}  ${cp.label}  ${chalk.dim(`(${cp.files.length} file(s))`)}`);
+                console.log();
+                return;
+            }
+            const cp = all[0];
+            if (!cp) return void console.log(chalk.dim("Nothing to undo."));
+            console.log(chalk.bold(`\nUndo "${cp.label}"?`));
+            for (const f of cp.files)
+                console.log(`  ${f.existed ? chalk.blue("restore") : chalk.red("delete ")} ${f.path}`);
+            const ok = await confirm({
+                message: "Restore these files? (any edits you made to them since will be lost)",
+                initialValue: true,
+            });
+            if (isCancel(ok) || !ok) return;
+            const res = engine.undo();
+            if (!res) return;
+            console.log(chalk.green(`✓ Restored ${res.restored.length}, removed ${res.removed.length} file(s).`));
+            for (const e of res.errors) console.log(chalk.red(`  • ${e}`));
+        },
+    },
+    {
+        name: "mode",
+        args: "[review|auto-edit]",
+        description: "Switch between reviewing diffs and writing edits immediately",
+        agentOnly: true,
+        async run({ engine, args }) {
+            let next = args as PermissionMode;
+            if (next !== "review" && next !== "auto-edit") {
+                const choice = await select<PermissionMode>({
+                    message: `Permission mode (current: ${engine.permissionMode})`,
+                    options: [
+                        { value: "review", label: "review", hint: "stage edits, approve diffs after each turn" },
+                        { value: "auto-edit", label: "auto-edit", hint: "write edits immediately; /undo reverts a turn" },
+                    ],
+                });
+                if (isCancel(choice)) return;
+                next = choice;
+            }
+            if (engine.pending().length && next === "auto-edit") {
+                console.log(chalk.yellow("Resolve the staged changes first."));
+                return;
+            }
+            engine.setPermissionMode(next);
+            console.log(chalk.green(`✓ Permission mode: ${next}`));
         },
     },
     {

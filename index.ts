@@ -22,11 +22,33 @@ program.command("chat")
     .description("start an interactive agent chat in the current directory")
     .argument("[prompt...]", "optional first message")
     .option("-m, --model <spec>", "model, e.g. gemini:gemini-3.5-flash-lite or openrouter:openrouter/auto")
-    .action(async (prompt: string[], opts: { model?: string }) => {
+    .option("--auto-edit", "write edits immediately (checkpointed, /undo to revert) instead of reviewing diffs")
+    .action(async (prompt: string[], opts: { model?: string; autoEdit?: boolean }) => {
         await runAgentMode({
             model: opts.model,
+            permissionMode: opts.autoEdit ? "auto-edit" : undefined,
             initialPrompt: prompt.join(" ") || undefined,
         });
+    });
+
+program.command("undo")
+    .description("restore the files changed by RushClaw's last applied turn in this directory")
+    .option("-y, --yes", "don't ask for confirmation")
+    .action(async (opts: { yes?: boolean }) => {
+        const { CheckpointStore } = await import("./core/checkpoints");
+        const { confirm, isCancel } = await import("@clack/prompts");
+        const store = new CheckpointStore(process.cwd());
+        const cp = store.latest();
+        if (!cp) return void console.log("Nothing to undo.");
+        console.log(`Last checkpoint: "${cp.label}" (${cp.createdAt})`);
+        for (const f of cp.files) console.log(`  ${f.existed ? "restore" : "delete "} ${f.path}`);
+        if (!opts.yes) {
+            const ok = await confirm({ message: "Restore these files?", initialValue: true });
+            if (isCancel(ok) || !ok) return;
+        }
+        const res = store.undoLast()!;
+        console.log(`Restored ${res.restored.length}, removed ${res.removed.length} file(s).`);
+        for (const e of res.errors) console.log(`  • ${e}`);
     });
 
 program.command("ask")

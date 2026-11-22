@@ -106,7 +106,8 @@ export async function reviewStagedChanges(engine: AgentEngine): Promise<void> {
 
     await runApprovalFlow(engine.tracker);
     const res = engine.applyApproved();
-    if (res.applied.length) console.log(chalk.green(`✓ Applied ${res.applied.length} file change(s).`));
+    if (res.applied.length)
+        console.log(chalk.green(`✓ Applied ${res.applied.length} file change(s).`) + chalk.dim("  (/undo to revert)"));
     if (res.rejected.length) console.log(chalk.dim(`✗ Rejected: ${res.rejected.join(", ")}`));
     for (const out of res.shellOutputs) console.log(chalk.dim(out));
     for (const e of res.errors) console.log(chalk.red(`  • ${e}`));
@@ -141,6 +142,11 @@ export async function runChat(opts: ChatOptions = {}): Promise<void> {
             const r = await engine.runTurn(content, ac.signal);
             ui.turnEnd();
             if (r.aborted) console.log(chalk.yellow("⏹  Interrupted."));
+            if (r.written.length)
+                console.log(
+                    chalk.green(`\n✓ Wrote ${r.written.length} file(s): ${r.written.join(", ")}`) +
+                    chalk.dim("  (/undo to revert this turn)"),
+                );
         } catch (err) {
             ui.turnEnd();
             printError(err, engine.modelSpec);
