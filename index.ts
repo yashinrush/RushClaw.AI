@@ -4,13 +4,46 @@ import { Command } from "commander";
 import { runWakeup } from "./tui/wakeup";
 import { runAgentMode } from "./modes/agent/orchestrator";
 import { runAskMode } from "./modes/ask/orchestrator";
+import { loadExtraEnv } from "./core/env";
+
+// API keys also come from ~/.rushclaw/.env and RushClaw's own .env, so the
+// globally linked CLI works inside any project.
+if (process.env.RUSHCLAW_NO_EXTRA_ENV !== "1") loadExtraEnv(import.meta.dir);
 
 const program = new Command();
 
 program
     .name("rushclaw-build")
     .description("RushClaw — an autonomous coding agent for your terminal")
-    .version("1.1.0");
+    .version("1.1.0")
+    // root options must come before a subcommand, so `chat -m x` stays the chat's option
+    .enablePositionalOptions()
+    .option("-p, --print <prompt>", "headless: run one task non-interactively and print the result (\"-\" reads the prompt from stdin)")
+    .option("-y, --yes", "headless: apply file edits (otherwise they are only shown)")
+    .option("-o, --output <format>", "headless: text | json", "text")
+    .option("-m, --model <spec>", "headless: model to use")
+    .option("--max-steps <n>", "headless: max tool-loop steps", (v) => parseInt(v, 10))
+    .option("-c, --continue", "headless: continue the most recent conversation")
+    .option("--read-only", "headless: Ask mode (no edits or commands)")
+    .option("--stdin", "headless: append piped stdin to the prompt")
+    .action(async (opts: {
+        print?: string; yes?: boolean; output?: string; model?: string; maxSteps?: number;
+        continue?: boolean; readOnly?: boolean; stdin?: boolean;
+    }) => {
+        if (opts.print === undefined) return runWakeup();
+        const { runHeadless } = await import("./modes/headless");
+        const code = await runHeadless({
+            prompt: opts.print,
+            yes: opts.yes,
+            output: opts.output === "json" ? "json" : "text",
+            model: opts.model,
+            maxSteps: opts.maxSteps,
+            continueLast: opts.continue,
+            readOnly: opts.readOnly,
+            stdin: opts.stdin,
+        });
+        process.exitCode = code;
+    });
 
 program.command("wakeup")
     .description("show the banner and pick cli or telegram mode")
