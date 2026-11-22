@@ -10,6 +10,7 @@ import { runApprovalFlow } from "./approval";
 import { renderTerminalMarkdown } from "../../tui/terminal-md";
 import { buildSystemPrompt } from "../../core/system-prompt";
 import { loadMemory } from "../../core/memory";
+import { printError } from "../../core/errors";
 
 export async function runAgentMode() {
     console.log(chalk.bold("\n🤖 Agent Mode\n"));
@@ -62,16 +63,7 @@ export async function runAgentMode() {
     } catch (err: any) {
         s.stop("Agent execution failed");
         executor.clearStaging();
-        const msg = err?.message || String(err);
-        if (msg.includes("Rate limit exceeded") || msg.includes("429")) {
-            console.log(chalk.red("\n❌ Rate limit exceeded: OpenRouter free tier daily limit (50 requests/day) reached."));
-            console.log(chalk.yellow("👉 Suggestions:"));
-            console.log(chalk.dim("   1. Switch OPENROUTER_DEFAULT_MODEL in .env (e.g. meta-llama/llama-3.3-70b-instruct:free or google/gemini-2.0-flash-lite-preview:free)"));
-            console.log(chalk.dim("   2. Add credits to OpenRouter to raise the limit to 1000 requests/day"));
-            console.log(chalk.dim("   3. Or wait for the daily quota reset.\n"));
-        } else {
-            console.log(chalk.red(`\n❌ Agent encountered an error: ${msg}\n`));
-        }
+        printError(err, undefined, "Agent encountered an error");
         return;
     }
 

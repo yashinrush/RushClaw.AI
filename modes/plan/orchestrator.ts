@@ -14,6 +14,7 @@ import type { PlanStep } from "./types.ts";
 import { createWebTools } from "./web-tools.ts";
 import { buildSystemPrompt } from "../../core/system-prompt.ts";
 import { loadMemory } from "../../core/memory.ts";
+import { printError } from "../../core/errors.ts";
 
 
 function stepPrompt(goal: string, step: PlanStep): string {
@@ -31,15 +32,7 @@ export async function runPlanMode(): Promise<void> {
     try {
         plan = await generatePlan(goal);
     } catch (err: any) {
-        const msg = err?.message || String(err);
-        if (msg.includes("Rate limit exceeded") || msg.includes("429")) {
-            console.log(chalk.red("\n❌ Rate limit exceeded: OpenRouter free tier daily limit reached."));
-            console.log(chalk.yellow("👉 Suggestions:"));
-            console.log(chalk.dim("   1. Switch OPENROUTER_DEFAULT_MODEL in .env"));
-            console.log(chalk.dim("   2. Add credits to OpenRouter to raise the limit to 1000 requests/day\n"));
-        } else {
-            console.log(chalk.red(`\n❌ Error drafting plan: ${msg}\n`));
-        }
+        printError(err, undefined, "Error drafting plan");
         return;
     }
 
@@ -106,12 +99,7 @@ export async function runPlanMode(): Promise<void> {
         } catch (err: any) {
             s.stop(`Failed: ${step.title}`);
             executor.clearStaging();
-            const msg = err?.message || String(err);
-            if (msg.includes("Rate limit exceeded") || msg.includes("429")) {
-                console.log(chalk.red("\n❌ Rate limit exceeded: OpenRouter free tier daily limit reached."));
-            } else {
-                console.log(chalk.red(`\n❌ Error running step: ${msg}`));
-            }
+            printError(err, undefined, "Error running step");
             return;
         }
 

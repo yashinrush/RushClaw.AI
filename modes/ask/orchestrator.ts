@@ -11,6 +11,7 @@ import { createWebTools } from "../plan/web-tools.ts";
 import { createReadOnlyTools } from "../agent/agent-tools.ts";
 import { buildSystemPrompt } from "../../core/system-prompt.ts";
 import { loadMemory } from "../../core/memory.ts";
+import { printError } from "../../core/errors.ts";
 
 function asMd(question: string, answer: string): string {
     return `# Ask Mode\n\n## Question\n\n${question.trim()}\n\n## Answer\n\n${answer.trim()}\n`;
@@ -66,15 +67,7 @@ export async function runAskMode() {
         s.stop("Answer ready!");
     } catch (err: any) {
         s.stop("Failed to generate answer");
-        const msg = err?.message || String(err);
-        if (msg.includes("Rate limit exceeded") || msg.includes("429")) {
-            console.log(chalk.red("\n❌ Rate limit exceeded: OpenRouter free tier daily limit (50 requests/day) reached."));
-            console.log(chalk.yellow("👉 Suggestions:"));
-            console.log(chalk.dim("   1. Switch OPENROUTER_DEFAULT_MODEL in .env"));
-            console.log(chalk.dim("   2. Add credits to OpenRouter to raise the limit to 1000 requests/day\n"));
-        } else {
-            console.log(chalk.red(`\n❌ Error: ${msg}\n`));
-        }
+        printError(err);
         return;
     }
 

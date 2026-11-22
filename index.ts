@@ -7,7 +7,7 @@ const program = new Command();
 
 program
     .name("rushclaw-build")
-    .description("The CLI forRushClaw")
+    .description("RushClaw — an autonomous coding agent for your terminal")
     .version("1.0.0");
 
 program.command("wakeup")
