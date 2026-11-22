@@ -17,7 +17,7 @@
 <br/>
 
 <p align="center">
-  <img src="./assets/rushclaw-banner.png" alt="RushClaw.AI CLI Banner" width="740" />
+  <img src="./assets/screenshots/rushclaw-launcher.svg" alt="RushClaw launcher: animated gradient logo, status chips and the mode menu" width="760" />
 </p>
 
 </div>
@@ -57,12 +57,49 @@ Every single codebase mutation (file creation, modification, or directory additi
 
 ## 📸 Terminal Output & Interactive Flow
 
-RushClaw features an interactive, shadow-typography terminal user interface (TUI) with smooth sub-mode navigation, real-time loading spinners, and graceful loopbacks:
+RushClaw has a colorful, animated terminal interface. These screenshots are real sessions, recorded from the terminal on a small demo project with Gemini:
+
+### 🚀 Launcher
+
+`rushclaw-build` (or `bun index.ts`) opens the animated launcher shown at the top of this page. The logo fills in with the brand gradient, the status line shows which API keys are configured, and every mode is one keypress away.
+
+### 🐛 The agent fixing a bug by itself
+
+In `--auto-edit` mode the agent works through a full loop:
+1. Plans with a todo checklist.
+2. Reads the code.
+3. Runs the tests and sees them fail.
+4. Fixes both bugs with one small edit (inline red/green diff).
+5. Re-runs the tests and sees them pass.
+6. Summarizes what it did.
+
+The footer shows time, tokens and model calls for the turn.
 
 <p align="center">
-  <img src="./assets/rushclaw-banner.png" alt="RushClaw Startup Launcher" width="720" />
-  <br/><br/>
-  <img src="./assets/rushclaw-menu-flow.png" alt="RushClaw CLI Sub-Mode Selection" width="720" />
+  <img src="./assets/screenshots/rushclaw-agent-fix.svg" alt="Agent chat: todo list, tool calls, failing tests, inline diff, passing tests and summary" width="760" />
+</p>
+
+### ✅ Reviewing changes before they touch your files
+
+In the default `review` mode, edits are staged. You see a change table and decide: approve all, review file by file (or hunk by hunk), show the diffs, or reject.
+
+<p align="center">
+  <img src="./assets/screenshots/rushclaw-review.svg" alt="Staged changes table and the Apply staged changes prompt" width="760" />
+</p>
+
+<details>
+<summary><b>Show all diffs</b> — the full colored diff before approving</summary>
+<p align="center">
+  <img src="./assets/screenshots/rushclaw-diff.svg" alt="Colored unified diff of the staged change" width="760" />
+</p>
+</details>
+
+### ⌨️ Slash commands
+
+`/help` lists every command, grouped by what it does:
+
+<p align="center">
+  <img src="./assets/screenshots/rushclaw-help.svg" alt="/help output grouped into Conversation, Model & mode, Project and Git" width="760" />
 </p>
 
 | UI Element | Description |
@@ -120,18 +157,20 @@ TELEGRAM_OWNER_ID=your_numeric_telegram_user_id
 
 ### 3. Launch RushClaw
 
-Run directly with Bun:
+Run directly with Bun (opens the animated launcher):
 
 ```bash
-bun index.ts wakeup
+bun index.ts
 ```
 
-Or link globally to use the `rushclaw-build` command anywhere:
+Or link globally to use the `rushclaw-build` command in any project:
 
 ```bash
 bun link
-rushclaw-build wakeup
+rushclaw-build
 ```
+
+> `wakeup` still works and does the same thing: `bun index.ts wakeup` / `rushclaw-build wakeup` open the launcher too.
 
 > 💡 When used inside another project, RushClaw also reads API keys from `~/.rushclaw/.env` and from its own install folder's `.env`.
 
@@ -155,9 +194,7 @@ Optional: copy [`rushclaw.config.example.json`](./rushclaw.config.example.json) 
 
 ## 🕹️ Operating Modes
 
-<p align="center">
-  <img src="./assets/rushclaw-menu-flow.png" alt="RushClaw CLI Sub-Mode Selector" width="720" />
-</p>
+All modes start from the launcher (see the [screenshots above](#-terminal-output--interactive-flow)) or directly from the command line.
 
 ### 1. 🤖 Agent Mode (`runAgentMode` → interactive chat)
 Designed for autonomous execution of complex features and fixes, as a multi-turn conversation:

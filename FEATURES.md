@@ -4,6 +4,7 @@ This guide lists everything RushClaw can do, how to use each feature, and **wher
 
 - **Users:** start with [Cheat sheet](#cheat-sheet) and [Modes](#1-modes).
 - **Contributors:** jump to [Architecture](#9-architecture) and the *Code* line under each feature.
+- **Screenshots** of the interface are in the [README](README.md#-terminal-output--interactive-flow) (files in [assets/screenshots/](assets/screenshots)).
 
 ---
 
