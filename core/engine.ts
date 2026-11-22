@@ -13,6 +13,7 @@ import { buildSystemPrompt, type PromptMode } from "./system-prompt";
 import { UsageTracker } from "./usage";
 import { createTodoTool, type Todo } from "./todos";
 import { compactedHistory, summarizeConversation } from "./compact";
+import { runHooks, wrapToolsWithHooks } from "./hooks";
 import { SessionStore, newSessionId, titleFrom, type SessionData } from "./session";
 import { createTaskTool } from "./subagent";
 import { CheckpointStore, type RestoreResult, type Checkpoint } from "./checkpoints";
@@ -166,13 +167,28 @@ export class AgentEngine {
                     commandTimeoutMs: this.config.commandTimeoutMs,
                     editsAreOnDisk: () => this.permissionMode === "auto-edit",
                 });
-        return {
+        const all: ToolSet = {
             ...base,
             ...(this.mode === "agent" ? { todo_write: createTodoTool(this, (t) => this.ui.todos?.(t)) } : {}),
             task: createTaskTool(this),
             ...(this.hasWeb ? createWebTools(this.tracker) : {}),
             ...this.extraTools,
         };
+        return wrapToolsWithHooks(all, this.config.hooks, this.root, (m) => this.ui.info?.(m));
+    }
+
+    /** Run postApply hooks (formatters, linters…) after files were written. */
+    async runPostApplyHooks(files: string[]): Promise<void> {
+        if (!files.length || !this.config.hooks.postApply?.length) return;
+        const runs = await runHooks("PostApply", this.config.hooks.postApply, { files }, this.root);
+        for (const r of runs) {
+            if (r.code !== 0) {
+                this.ui.info?.(`postApply hook "${r.command}" exited ${r.code}${r.output ? `:\n${r.output}` : ""}`);
+                this.addNote(`A postApply hook (${r.command}) failed after your changes were written:\n${r.output}`);
+            } else if (r.output) {
+                this.ui.info?.(`postApply hook "${r.command}": ${r.output.split("\n")[0]}`);
+            }
+        }
     }
 
     systemPrompt(tools: ToolSet = this.tools()): string {
@@ -351,6 +367,7 @@ export class AgentEngine {
         } else {
             this.messages.push(userMsg, ...response);
         }
+        await this.runPostApplyHooks(written);
         this.save();
         return { text, aborted, written };
     }

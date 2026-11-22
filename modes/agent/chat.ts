@@ -110,6 +110,7 @@ export async function reviewStagedChanges(engine: AgentEngine): Promise<void> {
 
     await runApprovalFlow(engine.tracker);
     const res = engine.applyApproved();
+    await engine.runPostApplyHooks(res.applied);
     if (res.applied.length)
         console.log(chalk.green(`✓ Applied ${res.applied.length} file change(s).`) + chalk.dim("  (/undo to revert)"));
     if (res.rejected.length) console.log(chalk.dim(`✗ Rejected: ${res.rejected.join(", ")}`));

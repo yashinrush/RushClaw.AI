@@ -236,6 +236,29 @@ registerSlash(
         },
     },
     {
+        name: "hooks",
+        description: "List configured hooks (preToolUse / postToolUse / postApply)",
+        async run({ engine }) {
+            const h = engine.config.hooks;
+            const groups: Array<[string, typeof h.preToolUse]> = [
+                ["preToolUse", h.preToolUse],
+                ["postToolUse", h.postToolUse],
+                ["postApply", h.postApply],
+            ];
+            const any = groups.some(([, list]) => list?.length);
+            if (!any) {
+                console.log(chalk.dim(`No hooks configured. Add a "hooks" section to ${PROJECT_CONFIG_FILE} (see rushclaw.config.example.json).`));
+                return;
+            }
+            for (const [event, list] of groups) {
+                if (!list?.length) continue;
+                console.log(chalk.bold(`\n${event}`));
+                for (const x of list) console.log(`  ${chalk.cyan(x.matcher ?? "*")}  ${x.command}`);
+            }
+            console.log();
+        },
+    },
+    {
         name: "todos",
         description: "Show the agent's current todo checklist",
         agentOnly: true,
