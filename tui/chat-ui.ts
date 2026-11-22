@@ -23,6 +23,7 @@ export class CliUI implements EngineUI {
     private label = "Thinking…";
     private verb = "Thinking";
     private replyStarted = false;
+    private turnMs = 0;
     private toolStarts: Array<{ name: string; at: number }> = [];
     private readonly md = new StreamingMarkdown((s) => {
         const wasRunning = this.activity.running;
@@ -38,6 +39,7 @@ export class CliUI implements EngineUI {
         this.replyStarted = false;
         this.toolStarts = [];
         this.activity.reset();
+        this.turnMs = 0;
         this.setLabel(`${this.verb}…`);
         this.activity.start(this.label);
     }
@@ -45,12 +47,14 @@ export class CliUI implements EngineUI {
     turnEnd(): void {
         this.md.flush();
         this.activity.stop();
+        // time the agent worked — excludes the user's diff review afterwards
+        this.turnMs = this.activity.elapsedMs;
     }
 
     /** "✻ Done in 8.2s · ↑ 11k ↓ 113 · 4 calls · context 2.9k" */
     footer(usage: UsageTracker, opts: { interrupted?: boolean } = {}): void {
         const d = usage.turnDelta();
-        const time = fmtDuration(this.activity.elapsedMs);
+        const time = fmtDuration(this.turnMs || this.activity.elapsedMs);
         const head = opts.interrupted
             ? t.warn(`${sym.cross} Interrupted after ${time}`)
             : `${gradient(sym.star, BRAND_GRADIENT)} ${t.muted(`Done in ${time}`)}`;

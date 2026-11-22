@@ -257,6 +257,36 @@ export function wrap(text: string, width: number): string[] {
     return out;
 }
 
+/**
+ * Word-wrap text that may contain ANSI color codes. Codes are zero-width and
+ * stay attached to their words; colors carry over line breaks because the
+ * terminal keeps its SGR state.
+ */
+export function wrapAnsi(text: string, width: number): string[] {
+    const out: string[] = [];
+    for (const para of text.split("\n")) {
+        const words = para.split(/ +/);
+        let line = "";
+        let lineW = 0;
+        for (const word of words) {
+            const w = visibleWidth(word);
+            if (!line) {
+                line = word;
+                lineW = w;
+            } else if (lineW + 1 + w <= width) {
+                line += " " + word;
+                lineW += 1 + w;
+            } else {
+                out.push(line);
+                line = word;
+                lineW = w;
+            }
+        }
+        out.push(line);
+    }
+    return out;
+}
+
 /** ▰▰▰▱▱ style progress bar. */
 export function progressBar(done: number, total: number, width = 10, color: (s: string) => string = t.ok): string {
     if (total <= 0) return t.dim(sym.barEmpty.repeat(width));

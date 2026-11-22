@@ -124,3 +124,20 @@ describe("banner, replies, todos, spinner", () => {
         expect(THINKING_VERBS.length).toBeGreaterThan(5);
     });
 });
+
+describe("markdown lists", () => {
+    test("inline formatting inside list items is rendered and long items wrap", async () => {
+        const { renderTerminalMarkdown } = await import("../tui/terminal-md");
+        const { wrapAnsi } = await import("../tui/theme");
+        const out = stripAnsi(
+            renderTerminalMarkdown(
+                "1. **`subtotal`** multiplies price by qty " + "so the totals are right ".repeat(8) + "\n2. second",
+            ),
+        );
+        expect(out).not.toContain("**");
+        expect(out).not.toContain("`");
+        expect(out).toContain("1. subtotal multiplies");
+        expect(out.split("\n").length).toBeGreaterThan(3); // wrapped
+        expect(wrapAnsi("\x1b[1mbold\x1b[22m word another", 9).map(stripAnsi)).toEqual(["bold word", "another"]);
+    });
+});

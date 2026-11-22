@@ -8,7 +8,7 @@ import { INIT_PROMPT, MEMORY_FILE } from "../../core/memory";
 import { defaultModelSpec, formatModelSpec, hasProviderKey, parseModelSpec } from "../../ai/ai.config";
 import { renderTerminalMarkdown } from "../../tui/terminal-md";
 import { formatTodos } from "../../core/todos";
-import { BRAND_GRADIENT, gradient, sym, t } from "../../tui/theme";
+import { BRAND_GRADIENT, gradient, sym, t, termWidth, wrap } from "../../tui/theme";
 
 export interface SlashContext {
     engine: AgentEngine;
@@ -92,16 +92,16 @@ registerSlash(
                 for (const c of cmds) {
                     placed.add(c.name);
                     const name = `/${c.name}${c.args ? " " + c.args : ""}`;
-                    out.push(`    ${t.brand(name.padEnd(26))} ${t.muted(c.description)}`);
+                    // description column wraps with a hanging indent instead of mid-word
+                    const descLines = wrap(c.description, Math.max(20, termWidth() - 32));
+                    out.push(`    ${t.brand(name.padEnd(26))} ${t.muted(descLines[0] ?? "")}`);
+                    for (const more of descLines.slice(1)) out.push(`    ${" ".repeat(26)} ${t.muted(more)}`);
                 }
                 out.push("");
             }
             console.log("\n" + out.join("\n"));
-            console.log(
-                t.dim(
-                    `  Tips: ctrl+c interrupts a running turn · attach images with @path/to/image.png · end a line with \\ for multi-line input\n`,
-                ),
-            );
+            const tips = "Tips: ctrl+c interrupts a running turn · attach images with @path/to/image.png · end a line with \\ for multi-line input";
+            console.log(t.dim(wrap(tips, termWidth() - 4).map((l, i) => (i ? "        " : "  ") + l).join("\n")) + "\n");
         },
     },
     {
