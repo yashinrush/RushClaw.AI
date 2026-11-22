@@ -1,6 +1,7 @@
 import chalk from "chalk";
 import { tool } from "ai";
 import { z } from "zod";
+import * as theme from "../tui/theme";
 
 export type TodoStatus = "pending" | "in_progress" | "completed";
 
@@ -41,11 +42,12 @@ export function createTodoTool(state: { todos: Todo[] }, onUpdate?: (todos: Todo
 
 export function formatTodos(todos: Todo[]): string {
     if (!todos.length) return chalk.dim("  (no todos)");
-    return todos
-        .map((t) => {
-            if (t.status === "completed") return `  ${chalk.green("☒")} ${chalk.dim.strikethrough(t.content)}`;
-            if (t.status === "in_progress") return `  ${chalk.yellow("◐")} ${chalk.bold(t.content)}`;
-            return `  ${chalk.dim("☐")} ${t.content}`;
-        })
-        .join("\n");
+    const done = todos.filter((x) => x.status === "completed").length;
+    const header = `  ${theme.t.bold("Todos")}  ${theme.progressBar(done, todos.length, 12)} ${theme.t.muted(`${done}/${todos.length}`)}`;
+    const rows = todos.map((x) => {
+        if (x.status === "completed") return `    ${theme.t.ok(theme.sym.done)} ${chalk.dim.strikethrough(x.content)}`;
+        if (x.status === "in_progress") return `    ${theme.t.warn(theme.sym.doing)} ${chalk.bold(x.content)}`;
+        return `    ${theme.t.muted(theme.sym.todo)} ${x.content}`;
+    });
+    return [header, ...rows].join("\n");
 }

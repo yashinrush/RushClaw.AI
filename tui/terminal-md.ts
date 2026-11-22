@@ -5,7 +5,8 @@ let ready = false;
 
 function ensureMarked(): void {
     if (ready) return;
-    const w = Math.max(40, Math.min(process.stdout.columns || 80, 120));
+    // replies are indented by 2 columns in the chat, so leave room for that
+    const w = Math.max(40, Math.min((process.stdout.columns || 80) - 4, 116));
     //   @ts-ignore
     marked.use(markedTerminal({ width: w, reflowText: true }, {}));
     ready = true;
