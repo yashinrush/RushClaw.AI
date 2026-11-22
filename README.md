@@ -67,10 +67,12 @@ RushClaw features an interactive, shadow-typography terminal user interface (TUI
 
 | UI Element | Description |
 | :--- | :--- |
-| **Dual-Layer ASCII Shadow** | Custom dual-pass banner rendering combining facial foreground and shadow layers. |
-| **Interactive Clack Prompts** | Keyboard navigation (`↑`/`↓` and `Enter`) with zero-flicker selection. |
-| **Seamless Loopback Flow** | Returning from sub-modes (`← Back to main menu`) gracefully loops back to the launcher. |
-| **Real-time Spinners** | Live animated spinners reflecting exact model steps and active tool invocations. |
+| **Animated Gradient Banner** | The ASCII logo fills in with a violet → pink gradient and a light sweep, then the tagline types out, followed by a status line (configured keys, model, folder, git branch). |
+| **One-Step Launcher** | Agent chat, Plan, Ask, Resume a conversation, Telegram bot, all from the first menu, with hints. Leaving a mode returns to the launcher. |
+| **Shimmering Spinner** | A playful verb per turn (*Rushing…*, *Clawing through code…*) with a moving shimmer, elapsed time, live token count and an interrupt hint. |
+| **Readable Activity** | Color-coded tool lines, inline red/green diffs for edits, ✔/✘ exit badges for commands, a staged-changes table with change bars, todo progress bars, framed prompts and errors, and a `✻ Done in 7.6s` footer per turn. |
+
+> Animations turn off automatically outside interactive terminals and in CI. Set `RUSHCLAW_NO_ANIMATION=1` to turn them off yourself, or `RUSHCLAW_ASCII=1` for plain ASCII symbols. Details: [FEATURES.md → Terminal UI](./FEATURES.md#49-terminal-ui-and-animations).
 
 ---
 
@@ -239,9 +241,8 @@ RushClaw.AI/
 │   ├── plan/                 # Planner, step selection, step execution, web tools
 │   ├── telegram/             # Bot: handlers, live progress, voice, approvals, plans
 │   ├── headless.ts           # rushclaw-build -p
-│   └── cli.ts                # Main sub-mode interactive selector
-├── tui/                      # chat-ui, streaming markdown, spinner, tool lines, banner
-├── tests/                    # bun test suite (69 tests)
+├── tui/                      # theme (design system), chat-ui, streaming markdown, spinner, tool lines, animated launcher
+├── tests/                    # bun test suite (82 tests)
 ├── rushclaw.config.example.json
 ├── FEATURES.md               # Feature guide with code locations
 ├── index.ts                  # CLI entry point (Commander)

@@ -12,7 +12,7 @@ This guide lists everything RushClaw can do, how to use each feature, and **wher
 1. [Modes](#1-modes): Agent chat · Ask · Plan · Headless · Telegram
 2. [Agent tools](#2-agent-tools): what the model can call
 3. [Safety and control](#3-safety-and-control): review, hunks, auto-edit, checkpoints, permissions, hooks
-4. [Conversation features](#4-conversation-features): streaming, slash commands, sessions, compaction, todos, sub-agents, images, memory
+4. [Conversation features](#4-conversation-features): streaming, slash commands, sessions, compaction, todos, sub-agents, images, memory, terminal UI
 5. [Models and cost](#5-models-and-cost): providers, `/model`, fallback, usage, error messages
 6. [Integrations](#6-integrations): MCP servers, git, web research, Telegram extras
 7. [Configuration](#7-configuration): `rushclaw.config.json`, `.env`, data folders
@@ -59,7 +59,7 @@ An interactive, multi-turn coding agent in your terminal. You describe a task, a
 - **Ctrl+C** interrupts a running turn; **Ctrl+C** at the prompt leaves the chat.
 - End a line with `\` to type a multi-line message.
 
-**Use:** `rushclaw-build chat`, or Launcher → CLI → *Agent Mode*.
+**Use:** `rushclaw-build chat`, or Launcher → *💬 Agent chat*.
 
 **Code:**
 - [modes/agent/chat.ts](modes/agent/chat.ts): the REPL loop (`runChat`), input handling, Ctrl+C, end-of-turn review (`reviewStagedChanges`), session resume, MCP status.
@@ -71,7 +71,7 @@ An interactive, multi-turn coding agent in your terminal. You describe a task, a
 
 The same chat with **only read tools**: grep, read, list, search, sub-agents and web. Use it to understand a codebase safely. Follow-up questions keep context; `/save` exports the conversation to Markdown.
 
-**Use:** `rushclaw-build ask "question"` or Launcher → CLI → *Ask Mode*.
+**Use:** `rushclaw-build ask "question"` or Launcher → *❓ Ask*.
 
 **Code:** [modes/ask/orchestrator.ts](modes/ask/orchestrator.ts) (calls `runChat({ mode: "ask" })`). The read-only tool set is `createReadOnlyTools()` in [modes/agent/agent-tools.ts](modes/agent/agent-tools.ts), and the Ask prompt is `ASK_CORE` in [core/system-prompt.ts](core/system-prompt.ts).
 
@@ -83,7 +83,7 @@ The same chat with **only read tools**: grep, read, list, search, sub-agents and
 4. The steps run **in one conversation**, so later steps know what earlier ones did.
 5. You review all the diffs at the end. The session can be continued in chat (`--resume <id>`).
 
-**Use:** Launcher → CLI → *Plan Mode*, or `/plan` in Telegram.
+**Use:** Launcher → *🧭 Plan*, or `/plan` in Telegram.
 
 **Code:**
 - [modes/plan/planner.ts](modes/plan/planner.ts): `generatePlan()` (structured JSON output with a zod schema)
@@ -325,7 +325,30 @@ Instructions loaded into **every** prompt:
 
 **Code:** [core/memory.ts](core/memory.ts) (`loadMemory`, `INIT_PROMPT`); prompt assembly in [core/system-prompt.ts](core/system-prompt.ts).
 
-### 4.9 System prompt
+### 4.9 Terminal UI and animations
+
+| Element | What you see | Code |
+|---|---|---|
+| **Launcher** | Animated banner: the letters fill in left to right in the brand gradient (violet → pink), a light sweep passes across, then the tagline types out. A status line shows which keys are configured (`● Gemini ● OpenRouter ○ Firecrawl ● Telegram`), the model, the folder and the git branch. The menu opens each mode directly: *Agent chat, Plan, Ask, Resume a conversation, Telegram bot, Exit*. | [tui/wakeup.ts](tui/wakeup.ts) (`printBanner`, `colorBannerRow`, `runWakeup`) |
+| **Welcome card** | Rounded box with the model, permission mode, folder and memory, plus a tips line. The input placeholder rotates through example prompts. | `printHeader`, `placeholderTip` in [chat.ts](modes/agent/chat.ts) |
+| **Spinner** | Spinning star in the brand gradient, a playful verb per turn (*Rushing…*, *Clawing through code…*) with a moving shimmer, elapsed time, a live `↓ tokens` count and a `ctrl+c to interrupt` hint. | [tui/activity.ts](tui/activity.ts) (`Activity`) |
+| **Tool lines** | Color per category: cyan = reading, amber = editing, violet = commands, pink = sub-agents, blue = web, teal = MCP. Edits show a small red/green diff of the changed lines (`Updated +2 -1`). Commands show a `✔ exit 0` / `✘ exit 1` badge with the last output lines. Slow tools show how long they took. | [tui/tool-display.ts](tui/tool-display.ts) (`formatToolCall`, `formatToolResult`, `miniDiff`) |
+| **Replies** | Streamed Markdown, indented, with a gradient marker on each new reply block. | `decorateReply` in [tui/chat-ui.ts](tui/chat-ui.ts) |
+| **Turn footer** | `✻ Done in 7.6s · ↑ 11k · ↓ 99 · 4 calls · context 2.9k`, or `✘ Interrupted after …`. | `CliUI.footer` |
+| **Staged changes** | A table with `edit`/`new`/`del` badges, `+/-` counts and a git-style change bar. | `reviewStagedChanges` in [chat.ts](modes/agent/chat.ts) |
+| **Todos** | A progress bar (`▰▰▰▱▱ 3/5`) with ✔ done, ◼ in progress and ◻ pending. | `formatTodos` in [core/todos.ts](core/todos.ts) |
+| **Permission prompts** | Amber framed box showing the exact command or MCP call. | `CliApprover` in [tui/chat-ui.ts](tui/chat-ui.ts) |
+| **Errors** | Red framed panel with word-wrapped *Try this* suggestions. | `printError` in [core/errors.ts](core/errors.ts) |
+| **Plans, `/help`, goodbye** | The plan is a card with complexity badges. `/help` is grouped (Conversation, Model & mode, Project, Git). Leaving the chat shows turns, files changed, tokens and how to resume. | [modes/plan/selection.ts](modes/plan/selection.ts), [slash-commands.ts](modes/agent/slash-commands.ts), `printGoodbye` in [chat.ts](modes/agent/chat.ts) |
+
+All colors, symbols, gradients, boxes and bars come from one design system, [tui/theme.ts](tui/theme.ts) (`PALETTE`, `gradient`, `shimmer`, `box`, `progressBar`, `changeBar`, `wrap`). Change the palette there to re-theme everything.
+
+**Accessibility and terminals:**
+- Animations turn off automatically when output isn't an interactive terminal, in CI, with `TERM=dumb`, or when `RUSHCLAW_NO_ANIMATION=1` is set.
+- `RUSHCLAW_ASCII=1` (or a legacy Windows console) swaps the Unicode symbols for ASCII ones.
+- `NO_COLOR` / `FORCE_COLOR` are respected (via chalk).
+
+### 4.10 System prompt
 
 Each mode has its own instructions:
 
@@ -434,7 +457,7 @@ Optional. RushClaw reads `~/.rushclaw/config.json` (user) and then `<project>/ru
 
 ### 7.2 Environment variables (`.env`)
 
-`GEMINI_API_KEY`, `GEMINI_MODEL`, `OPENROUTER_API_KEY`, `OPENROUTER_DEFAULT_MODEL`, `FIRECRAWL_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_OWNER_ID`, and optionally `SKILLS_DIRS` and `RUSHCLAW_HOME`.
+`GEMINI_API_KEY`, `GEMINI_MODEL`, `OPENROUTER_API_KEY`, `OPENROUTER_DEFAULT_MODEL`, `FIRECRAWL_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_OWNER_ID`, and optionally `SKILLS_DIRS`, `RUSHCLAW_HOME`, `RUSHCLAW_NO_ANIMATION=1` (no animations) and `RUSHCLAW_ASCII=1` (ASCII symbols).
 
 Besides the `.env` in the current folder, RushClaw also reads `~/.rushclaw/.env` and the `.env` next to its own install. That way the globally linked CLI finds your keys inside any project. Existing variables are never overridden.
 
@@ -459,7 +482,7 @@ Nothing is written inside your project except the changes you approve, and the f
 ## 8. Testing
 
 ```bash
-bun run test        # 69 tests across 13 files
+bun run test        # 82 tests across 14 files
 bun run typecheck
 ```
 
@@ -478,6 +501,7 @@ bun run typecheck
 | [tests/stream-md.test.ts](tests/stream-md.test.ts) | streaming Markdown boundaries |
 | [tests/headless.test.ts](tests/headless.test.ts) | CLI flags, JSON errors, `.env` parsing |
 | [tests/telegram.test.ts](tests/telegram.test.ts) | in-place progress message, Accept flow |
+| [tests/ui.test.ts](tests/ui.test.ts) | gradients, widths, boxes, wrapping, bars, tool lines + mini diffs, banner frames, reply markers, todos, spinner |
 
 The tests use a scripted mock model ([tests/helpers.ts](tests/helpers.ts) → `scriptedModel`) and temporary folders. They never call a real API, and `RUSHCLAW_HOME` is redirected away from your real home folder.
 
@@ -555,8 +579,8 @@ flowchart LR
 | [diff-view.ts](modes/agent/diff-view.ts) | Diffs, hunks, stats, colors |
 | [action-tracker.ts](modes/agent/action-tracker.ts) / [types.ts](modes/agent/types.ts) | Staged action log, agent config |
 | [orchestrator.ts](modes/agent/orchestrator.ts) | `runAgentMode` entry |
-| **modes/** (other) | [ask/](modes/ask/orchestrator.ts), [plan/](modes/plan), [telegram/](modes/telegram), [headless.ts](modes/headless.ts), [cli.ts](modes/cli.ts) (sub-mode menu) |
-| **tui/** | [chat-ui.ts](tui/chat-ui.ts), [stream-md.ts](tui/stream-md.ts), [activity.ts](tui/activity.ts), [tool-display.ts](tui/tool-display.ts), [terminal-md.ts](tui/terminal-md.ts), [wakeup.ts](tui/wakeup.ts) (banner) |
+| **modes/** (other) | [ask/](modes/ask/orchestrator.ts), [plan/](modes/plan), [telegram/](modes/telegram), [headless.ts](modes/headless.ts) |
+| **tui/** | [theme.ts](tui/theme.ts) (design system), [chat-ui.ts](tui/chat-ui.ts), [stream-md.ts](tui/stream-md.ts), [activity.ts](tui/activity.ts), [tool-display.ts](tui/tool-display.ts), [terminal-md.ts](tui/terminal-md.ts), [wakeup.ts](tui/wakeup.ts) (animated launcher) |
 | **tests/** | See [Testing](#8-testing) |
 
 ### Extending RushClaw
