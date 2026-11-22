@@ -1,0 +1,175 @@
+import chalk from "chalk";
+import { isCancel, text } from "@clack/prompts";
+import { AgentEngine, type UserContent } from "../../core/engine";
+import type { PermissionMode } from "../../core/config";
+import { printError } from "../../core/errors";
+import { CliApprover, CliUI } from "../../tui/chat-ui";
+import { runApprovalFlow } from "./approval";
+import { changeStats, composeBeforeAfter } from "./diff-view";
+import { runSlash } from "./slash-commands";
+
+export interface ChatOptions {
+    /** "agent" (default) can edit files and run commands; "ask" is read-only Q&A. */
+    mode?: "agent" | "ask";
+    model?: string;
+    permissionMode?: PermissionMode;
+    /** Run this prompt (or /command) first, e.g. from `rushclaw chat "fix the build"`. */
+    initialPrompt?: string;
+}
+
+/** Hooks other modules use to extend the chat (sessions, MCP, images…). */
+export interface ChatHooks {
+    /** Called once after the engine is created. */
+    setup?(engine: AgentEngine, ui: CliUI): Promise<void> | void;
+    /** Turn raw input into model content (e.g. attach @image references). */
+    prepareInput?(engine: AgentEngine, input: string): Promise<string | UserContent> | string | UserContent;
+    /** After every completed turn. */
+    afterTurn?(engine: AgentEngine, ui: CliUI): Promise<void> | void;
+    /** When the chat ends. */
+    teardown?(engine: AgentEngine): Promise<void> | void;
+}
+
+const chatHooks: ChatHooks[] = [];
+
+export function registerChatHooks(h: ChatHooks): void {
+    chatHooks.push(h);
+}
+
+function printHeader(engine: AgentEngine) {
+    const mem = engine.memory.sources;
+    const title = engine.mode === "ask" ? "Ask mode (read-only)" : "Agent chat";
+    console.log(
+        [
+            "",
+            `${chalk.magenta("╭")} ${chalk.bold(`RushClaw · ${title}`)}`,
+            `${chalk.magenta("│")} model  ${chalk.cyan(engine.modelSpec)}${engine.mode === "agent" ? `   mode ${chalk.cyan(engine.permissionMode)}` : ""}`,
+            `${chalk.magenta("│")} cwd    ${engine.root}`,
+            `${chalk.magenta("│")} memory ${mem.length ? mem.map((s) => s.path.split(/[\\/]/).pop()).join(", ") : chalk.dim(engine.mode === "agent" ? "none — run /init to create RUSHCLAW.md" : "none")}`,
+            `${chalk.magenta("╰")} ${chalk.dim("/help for commands · Ctrl+C interrupts a turn · /exit to leave")}`,
+            "",
+        ].join("\n"),
+    );
+}
+
+/** Read one (possibly multi-line, via trailing "\") message from the user. */
+async function readInput(engine: AgentEngine): Promise<string | null> {
+    const lines: string[] = [];
+    while (true) {
+        const t = await text({
+            message: lines.length ? chalk.dim("…") : chalk.bold("You"),
+            placeholder:
+                lines.length === 0
+                    ? engine.mode === "ask"
+                        ? "Ask about the codebase (or /help)"
+                        : "Describe a task or ask a question (/help for commands)"
+                    : undefined,
+        });
+        if (isCancel(t)) return null;
+        const line = String(t ?? "");
+        if (line.endsWith("\\")) {
+            lines.push(line.slice(0, -1));
+            continue;
+        }
+        lines.push(line);
+        return lines.join("\n");
+    }
+}
+
+/** Show staged changes and let the user approve / reject them (review mode). */
+export async function reviewStagedChanges(engine: AgentEngine): Promise<void> {
+    const pending = engine.pending();
+    if (pending.length === 0) return;
+
+    console.log(chalk.bold("\n📝 Staged changes"));
+    const byPath = new Map<string, typeof pending>();
+    for (const a of pending) {
+        const key = a.type === "tool_execute" ? `$ ${a.details.command}` : a.path;
+        if (!byPath.has(key)) byPath.set(key, []);
+        byPath.get(key)!.push(a);
+    }
+    for (const [p, acts] of byPath) {
+        if (acts[0]!.type === "tool_execute") {
+            console.log(`  ${chalk.yellow("cmd")}  ${p}`);
+            continue;
+        }
+        if (acts.every((a) => a.type === "folder_create")) {
+            console.log(`  ${chalk.cyan("dir")}  ${p}/`);
+            continue;
+        }
+        const sorted = [...acts].sort((x, y) => x.timestamp.getTime() - y.timestamp.getTime());
+        const { before, after } = composeBeforeAfter(sorted);
+        const { added, removed } = changeStats(before, after);
+        const kind = sorted.some((a) => a.type === "file_delete") ? chalk.red("del ") : sorted[0]!.type === "file_create" ? chalk.green("new ") : chalk.blue("edit");
+        console.log(`  ${kind} ${p} ${chalk.green(`+${added}`)} ${chalk.red(`-${removed}`)}`);
+    }
+    console.log();
+
+    await runApprovalFlow(engine.tracker);
+    const res = engine.applyApproved();
+    if (res.applied.length) console.log(chalk.green(`✓ Applied ${res.applied.length} file change(s).`));
+    if (res.rejected.length) console.log(chalk.dim(`✗ Rejected: ${res.rejected.join(", ")}`));
+    for (const out of res.shellOutputs) console.log(chalk.dim(out));
+    for (const e of res.errors) console.log(chalk.red(`  • ${e}`));
+}
+
+export async function runChat(opts: ChatOptions = {}): Promise<void> {
+    const ui = new CliUI();
+    const engine = new AgentEngine({
+        mode: opts.mode ?? "agent",
+        model: opts.model,
+        permissionMode: opts.permissionMode,
+        approver: new CliApprover(ui),
+        ui,
+    });
+    for (const h of chatHooks) await h.setup?.(engine, ui);
+    printHeader(engine);
+
+    const runPrompt = async (prompt: string) => {
+        let content: string | UserContent = prompt;
+        for (const h of chatHooks) if (h.prepareInput) content = await h.prepareInput(engine, typeof content === "string" ? content : prompt);
+
+        const ac = new AbortController();
+        const onSigint = () => {
+            if (!ac.signal.aborted) {
+                ac.abort();
+                ui.info("Interrupting…");
+            }
+        };
+        process.on("SIGINT", onSigint);
+        ui.turnStart();
+        try {
+            const r = await engine.runTurn(content, ac.signal);
+            ui.turnEnd();
+            if (r.aborted) console.log(chalk.yellow("⏹  Interrupted."));
+        } catch (err) {
+            ui.turnEnd();
+            printError(err, engine.modelSpec);
+        } finally {
+            process.off("SIGINT", onSigint);
+        }
+
+        if (engine.mode === "agent") await reviewStagedChanges(engine);
+        for (const h of chatHooks) await h.afterTurn?.(engine, ui);
+        console.log(chalk.dim(`  ↳ ${engine.usage.formatTurn()}`));
+    };
+
+    const handle = async (line: string): Promise<"exit" | void> => {
+        if (line.startsWith("/")) return runSlash(line, { engine, runPrompt });
+        await runPrompt(line);
+    };
+
+    try {
+        if (opts.initialPrompt?.trim() && (await handle(opts.initialPrompt.trim())) === "exit") return;
+        while (true) {
+            const input = await readInput(engine);
+            if (input === null) break;
+            const line = input.trim();
+            if (!line) continue;
+            if ((await handle(line)) === "exit") break;
+        }
+    } finally {
+        if (engine.pending().length) engine.rejectAll();
+        for (const h of chatHooks) await h.teardown?.(engine);
+        console.log(chalk.dim("\nLeft the chat.\n"));
+    }
+}

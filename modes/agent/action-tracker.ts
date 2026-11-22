@@ -11,7 +11,7 @@ export class ActionTracker {
         },
     ): ActionLog {
         const action: ActionLog = {
-            id: entry.id ?? `action_${this.actions.length}`,
+            id: entry.id ?? this.nextId(),
             timestamp: entry.timestamp ?? new Date(),
             type: entry.type,
             path: entry.path,
@@ -38,5 +38,24 @@ export class ActionTracker {
         if (!a) return;
         a.status = status;
         if (userApproved !== undefined) a.userApproved = userApproved;
+    }
+
+    /** Patch an action's details (used when the user keeps only some hunks of an edit). */
+    updateDetails(id: string, details: Partial<ActionLog["details"]>): void {
+        const a = this.actions.find((x) => x.id === id);
+        if (a) a.details = { ...a.details, ...details };
+    }
+
+    /** Forget everything (called after each turn's changes are applied or rejected). */
+    clear(): void {
+        this.actions = [];
+        this.seq++;
+    }
+
+    private seq = 0;
+
+    /** Unique id even across clear() calls. */
+    nextId(): string {
+        return `action_${this.seq}_${this.actions.length}`;
     }
 }
