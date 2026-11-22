@@ -1,26 +1,25 @@
 import chalk from "chalk";
-import { confirm, isCancel, text, spinner } from "@clack/prompts";
-import { ToolLoopAgent, stepCountIs } from "ai";
-import { getAgentModel } from "../../ai/ai.config.ts";
-import { ActionTracker } from "../agent/action-tracker.ts";
-import { ToolExecutor } from "../agent/tool-executor.ts";
-import { createAgentTools } from "../agent/agent-tools.ts";
-import { defaultAgentConfig } from "../agent/types.ts";
-import { runApprovalFlow } from "../agent/approval.ts";
-import { renderTerminalMarkdown } from "../../tui/terminal-md.ts";
+import { confirm, isCancel, text } from "@clack/prompts";
+import { AgentEngine } from "../../core/engine.ts";
+import { printError } from "../../core/errors.ts";
+import { CliApprover, CliUI } from "../../tui/chat-ui.ts";
+import { reviewStagedChanges } from "../agent/chat.ts";
 import { generatePlan } from "./planner.ts";
 import { printPlan, selectSteps } from "./selection.ts";
-import type { PlanStep } from "./types.ts";
-import { createWebTools } from "./web-tools.ts";
-import { buildSystemPrompt } from "../../core/system-prompt.ts";
-import { loadMemory } from "../../core/memory.ts";
-import { printError } from "../../core/errors.ts";
+import type { Plan, PlanStep } from "./types.ts";
 
-
-function stepPrompt(goal: string, step: PlanStep): string {
-    return [`Goal: ${goal}`, `Step: ${step.title}`, step.description].join('\n');
+export function stepPrompt(plan: Plan, step: PlanStep, index: number, total: number): string {
+    return [
+        `Overall goal: ${plan.goal}`,
+        plan.researchSummary ? `Research summary: ${plan.researchSummary}` : "",
+        `Execute step ${index + 1} of ${total}: ${step.title}`,
+        step.description,
+        step.hints?.length ? `Hints:\n${step.hints.map((h) => `- ${h}`).join("\n")}` : "",
+        "Do only this step (earlier steps are already done in this conversation). Finish with a one-paragraph summary of what you changed.",
+    ]
+        .filter(Boolean)
+        .join("\n\n");
 }
-
 
 export async function runPlanMode(): Promise<void> {
     console.log(chalk.bold("\n🧭 Plan Mode\n"));
@@ -28,7 +27,7 @@ export async function runPlanMode(): Promise<void> {
     const goal = await text({ message: "What is your goal?" });
     if (isCancel(goal) || !goal.trim()) return;
 
-    let plan;
+    let plan: Plan;
     try {
         plan = await generatePlan(goal);
     } catch (err: any) {
@@ -47,74 +46,40 @@ export async function runPlanMode(): Promise<void> {
     });
     if (isCancel(proceed) || !proceed) return;
 
-    const config = defaultAgentConfig();
-    const tracker = new ActionTracker();
-    const executor = new ToolExecutor(tracker, config);
+    // All steps run in ONE conversation, so later steps know what earlier ones did.
+    const ui = new CliUI();
+    const engine = new AgentEngine({ approver: new CliApprover(ui), ui, persist: true });
+    await engine.connectMcp();
 
-
-    const tools = {
-        ...createAgentTools(executor),
-        ...createWebTools(tracker)
-    };
-
-    for (const step of selected) {
-        console.log(chalk.bold(`\n🔧 ${step.title}\n`));
-
-        const agent = new ToolLoopAgent({
-            model: getAgentModel(),
-            stopWhen: stepCountIs(30),
-            instructions: buildSystemPrompt({
-                mode: "agent",
-                root: config.codebasePath,
-                permissionMode: "review",
-                memory: loadMemory(config.codebasePath),
-                hasWeb: !!process.env.FIRECRAWL_API_KEY,
-                toolNames: Object.keys(tools),
-            }),
-            tools
-        });
-
-        const s = spinner();
-        s.start(`Executing: ${step.title}...`);
-
-        try {
-            const r = await agent.generate({
-                prompt: stepPrompt(plan.goal, step),
-                onStepFinish: ({ toolCalls }) => {
-                    for (const tc of toolCalls) {
-                        const preview = JSON.stringify(tc.input).slice(0, 160);
-                        s.message(`Running ${chalk.cyan(String(tc.toolName))}...`);
-                        console.log(
-                            chalk.green("  ✓"),
-                            chalk.bold(String(tc.toolName)),
-                            chalk.dim(preview + (preview.length >= 160 ? "..." : "")),
-                        );
-                    }
-                },
-            });
-            s.stop(`Completed: ${step.title}`);
-            if (r.text) {
-                console.log(renderTerminalMarkdown(r.text));
+    try {
+        for (const [i, step] of selected.entries()) {
+            console.log(chalk.bold(`\n🔧 Step ${i + 1}/${selected.length}: ${step.title}`));
+            const ac = new AbortController();
+            const onSigint = () => ac.abort();
+            process.on("SIGINT", onSigint);
+            ui.turnStart();
+            try {
+                const r = await engine.runTurn(stepPrompt(plan, step, i, selected.length), ac.signal);
+                ui.turnEnd();
+                if (r.written.length) console.log(chalk.green(`✓ Wrote ${r.written.join(", ")}`));
+                if (r.aborted) {
+                    console.log(chalk.yellow("⏹  Interrupted — remaining steps skipped."));
+                    break;
+                }
+            } catch (err) {
+                ui.turnEnd();
+                printError(err, engine.modelSpec, `Error running step "${step.title}"`);
+                break;
+            } finally {
+                process.off("SIGINT", onSigint);
             }
-        } catch (err: any) {
-            s.stop(`Failed: ${step.title}`);
-            executor.clearStaging();
-            printError(err, undefined, "Error running step");
-            return;
         }
 
+        await reviewStagedChanges(engine);
+        console.log(chalk.dim(`  ↳ ${engine.usage.formatSummary(engine.config.pricing).split("\n")[0]}`));
+        console.log(chalk.dim(`  Continue this work in chat: rushclaw-build chat --resume ${engine.sessionId}\n`));
+    } finally {
+        if (engine.pending().length) engine.rejectAll();
+        await engine.close();
     }
-
-    const ok = await runApprovalFlow(tracker);
-
-    if (!ok) return executor.clearStaging();
-
-    const { errors } = executor.applyApprovedFromTracker();
-    if (errors.length) {
-        console.log(chalk.red('\nSome operations reported errors:\n'));
-        for (const e of errors) console.log(chalk.red(`  • ${e}`));
-    } else {
-        console.log(chalk.green('\n✓ Applied.\n'));
-    }
-    executor.clearStaging();
 }
